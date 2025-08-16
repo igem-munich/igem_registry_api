@@ -177,7 +177,7 @@ def main() -> None:
         to_fasta(get_seqrecords(parts), FASTA)
 
     # 2. Create BLAST database from FASTA
-    if not any(DATABASE.parent.iterdir()):
+    if not DATABASE.parent.exists() or not any(DATABASE.parent.iterdir()):
         make_blastdb(FASTA, DATABASE)
 
     # 3. Run BLAST query
