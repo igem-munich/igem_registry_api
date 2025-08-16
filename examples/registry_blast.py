@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 DATA = Path("examples/data/parts.tar.br")
 FASTA = Path("examples/data/parts.fasta")
-DATABASE = Path("examples/data/blast/db.nsq")
+DATABASE = Path("examples/data/blast/db")
 
 QUERY = Path("examples/data/query.fasta")
 RESULT = Path("examples/data/results.xml")
@@ -177,7 +177,7 @@ def main() -> None:
         to_fasta(get_seqrecords(parts), FASTA)
 
     # 2. Create BLAST database from FASTA
-    if not DATABASE.exists():
+    if not any(DATABASE.parent.iterdir()):
         make_blastdb(FASTA, DATABASE)
 
     # 3. Run BLAST query
