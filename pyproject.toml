@@ -1,0 +1,35 @@
+[project]
+name = "igem_registry_api"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "brotli>=1.1.0",
+    "dotenv>=0.9.9",
+    "pydantic>=2.11.7",
+    "pytest>=8.4.1",
+    "requests>=2.32.4",
+]
+
+[project.urls]
+Repository = "https://github.com/igem-munich/igem_registry_api"
+Issues = "https://github.com/igem-munich/igem_registry_api/issues"
+Documentation = "https://github.com/igem-munich/igem_registry_api#readme"
+
+[build-system]
+requires = ["uv_build>=0.8.11,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = "src"
+module-name = "igem_registry_api"
+
+[tool.ruff.lint.per-file-ignores]
+"examples/**" = ["T201"]
+"tests/**" = ["S101"]
+
+[tool.pylint.main]
+load-plugins = [
+  "pylint_pydantic",
+]
