@@ -8,10 +8,10 @@ to use environment variables for configuration. Store your API credentials in
 a untracked `.env` file and load them using `dotenv` package.
 """
 
-import json
 import os
 
 from dotenv import load_dotenv
+from rich.pretty import pprint
 
 from igem_registry_api import Client
 
@@ -40,7 +40,7 @@ def main() -> None:
         client.opt_in()
 
     # 5. Test user settings
-    print(json.dumps(client.me(), indent=2))
+    pprint(client.me())
 
 
 if __name__ == "__main__":
