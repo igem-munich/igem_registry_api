@@ -29,7 +29,7 @@ from rich.console import Console
 from rich.table import Table
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable
+    from collections.abc import Iterable
 
 
 DATA = Path("examples/data/parts.tar.br")
@@ -97,7 +97,7 @@ def blastn_query(query: Path, database: Path, result: Path, hits: int) -> None:
     subprocess.run(command, check=True)  # noqa: S603
 
 
-def format_result(path: Path) -> Generator[Table, None, None]:
+def format_result(path: Path) -> Iterable[Table]:
     """Format BLAST XML results for display."""
     with path.open("r") as fh:
         records = NCBIXML.parse(fh)
@@ -171,7 +171,7 @@ def main() -> None:
     # 1. Convert compressed API response (JSON + brotli) to FASTA
     if not FASTA.exists():
         if not DATA.exists():
-            msg = f"Missing {DATA}"
+            msg = f"Missing input file: {DATA}."
             raise FileNotFoundError(msg)
         parts = load_parts(DATA)
         to_fasta(get_seqrecords(parts), FASTA)
