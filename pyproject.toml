@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "biopython>=1.85",
     "brotli>=1.1.0",
     "dotenv>=0.9.9",
     "pydantic>=2.11.7",
