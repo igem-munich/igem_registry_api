@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Self
 
 import requests
-from pydantic import UUID4, Field, HttpUrl
+from pydantic import UUID4, Field, HttpUrl, NonNegativeInt
 
 from .calls import _call, _call_paginated
 from .client import Client  # noqa: TC001
@@ -102,8 +102,12 @@ class Organisation(OrganisationData):
         )
 
     @authenticated
-    def members(self) -> list[Account]:
+    def members(self, limit: NonNegativeInt | None = None) -> list[Account]:
         """Get a list of members in the organisation.
+
+        Args:
+            limit (NonNegativeInt | None): The maximum number of members to
+                retrieve.
 
         Returns:
             list[Account]: A list of accounts that are members of the
@@ -122,5 +126,6 @@ class Organisation(OrganisationData):
                 url=f"{self.client.base}/organisations/{self.uuid}/members",
             ),
             AccountData,
+            limit=limit,
         )
         return [Account.from_data(self.client, user) for user in users]

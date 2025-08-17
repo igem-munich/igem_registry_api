@@ -36,12 +36,12 @@ if __name__ == "__main__":
     pprint(user)
 
     # 3. Fetch user organizations
-    orgs = user.affiliations()
+    orgs = user.affiliations(limit=2)
     console.rule("[bold]User Affiliations")
     pprint(orgs)
 
     # 4. Fetch user parts
-    parts = user.parts()
+    parts = user.parts(limit=10)
     console.rule("[bold]User Parts")
     pprint(parts)
 

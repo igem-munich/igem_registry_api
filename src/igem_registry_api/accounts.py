@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Self
 
 import requests
-from pydantic import UUID4, Field, PrivateAttr
+from pydantic import UUID4, Field, NonNegativeInt, PrivateAttr
 
 from .calls import _call_paginated
 from .client import Client  # noqa: TC001
@@ -122,8 +122,15 @@ class Account(AccountData):
         return self
 
     @authenticated
-    def affiliations(self) -> list[Organisation]:
+    def affiliations(
+        self,
+        limit: NonNegativeInt | None = None,
+    ) -> list[Organisation]:
         """Get account affiliations.
+
+        Args:
+            limit (NonNegativeInt | None): The maximum number of organisations
+                to  retrieve.
 
         Returns:
             out (list[OrganisationData]): Organisations the account belongs to.
@@ -144,12 +151,25 @@ class Account(AccountData):
                 url=f"{self.client.base}/accounts/{self.uuid}/affiliations",
             ),
             OrganisationData,
+            limit=limit,
         )
         return [Organisation.from_data(self.client, org) for org in orgs]
 
     @authenticated
-    def parts(self) -> list[PartData]:
-        """Get user parts."""
+    def parts(self, limit: NonNegativeInt | None = None) -> list[PartData]:
+        """Get parts authored by the account user.
+
+        Args:
+            limit (NonNegativeInt | None): The maximum number of parts to
+                retrieve.
+
+        Returns:
+            out (list[PartData]): The parts authored by the account user.
+
+        Raises:
+            NotAuthenticatedError: If the client is not authenticated.
+
+        """
         parts, _ = _call_paginated(
             self.client,
             requests.Request(
@@ -157,5 +177,6 @@ class Account(AccountData):
                 url=f"{self.client.base}/parts/accounts/{self.uuid}",
             ),
             PartData,
+            limit=limit,
         )
         return parts
