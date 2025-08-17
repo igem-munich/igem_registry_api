@@ -44,3 +44,9 @@ if __name__ == "__main__":
     parts = user.parts()
     console.rule("[bold]User Parts")
     pprint(parts)
+
+    # 5. Fetch organization members
+    for org in orgs:
+        members = org.members()
+        console.rule(f"[bold]Members of {org.name}")
+        pprint(members)

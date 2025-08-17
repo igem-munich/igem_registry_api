@@ -3,66 +3,33 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Any, Self
 
 import requests
-from pydantic import UUID4, ConfigDict, Field, PrivateAttr
+from pydantic import ConfigDict, Field, PrivateAttr, SkipValidation
 
 from .calls import _call_paginated
-from .types import AccountRoles, ClosedModel, OrganisationData, PartData
+from .types import AccountData, OrganisationData, PartData
 from .utils import authenticated
 
 if TYPE_CHECKING:
     from .client import Client
+    from .organisations import Organisation
+else:
+    Client = Any
 
 
 logger = logging.getLogger(__name__)
 
 
-class Account(ClosedModel):
+class Account(AccountData):
     """TODO."""
 
-    client: Client = Field(
+    client: SkipValidation[Client] = Field(
         title="Client",
         description="Registry API client instance.",
         exclude=True,
         repr=False,
-    )
-    uuid: UUID4 = Field(
-        title="UUID",
-        description="The unique identifier for the account.",
-    )
-    role: AccountRoles | None = Field(
-        title="Role",
-        description="The system role of the account.",
-        alias="systemRole",
-        default=None,
-    )
-    first_name: str | None = Field(
-        title="First Name",
-        description="The first name of the account user.",
-        alias="firstName",
-        default=None,
-    )
-    last_name: str | None = Field(
-        title="Last Name",
-        description="The last name of the account user.",
-        alias="lastName",
-        default=None,
-    )
-    photo: str | None = Field(
-        title="Photo",
-        description="The photo URL of the account.",
-        alias="photoURL",
-        default=None,
-    )
-    consent: bool | None = Field(
-        title="Consent",
-        description=(
-            "Whether the account user has opted in to be a contributor."
-        ),
-        alias="optedIn",
-        default=None,
     )
 
     __username: str | None = PrivateAttr(
@@ -82,6 +49,16 @@ class Account(ClosedModel):
     def set_username(self, value: str | None) -> None:
         """TODO."""
         object.__setattr__(self, "_Account__username", value)
+
+    @classmethod
+    def from_data(
+        cls: type[Self],
+        client: Client,
+        data: AccountData,
+    ) -> Self:
+        """TODO."""
+        payload = data.model_dump(by_alias=True)
+        return cls.model_validate({**payload, "client": client})
 
     @authenticated
     def info(self) -> Self:
@@ -103,7 +80,7 @@ class Account(ClosedModel):
         return self
 
     @authenticated
-    def affiliations(self) -> list[OrganisationData]:
+    def affiliations(self) -> list[Organisation]:
         """Get account affiliations.
 
         Returns:
@@ -113,7 +90,9 @@ class Account(ClosedModel):
             NotAuthenticatedError: If the client is not authenticated.
 
         """
-        organisations, _ = _call_paginated(
+        from .organisations import Organisation  # noqa: PLC0415
+
+        orgs, _ = _call_paginated(
             self.client,
             requests.Request(
                 method="GET",
@@ -121,7 +100,7 @@ class Account(ClosedModel):
             ),
             OrganisationData,
         )
-        return organisations
+        return [Organisation.from_data(self.client, org) for org in orgs]
 
     @authenticated
     def parts(self) -> list[PartData]:

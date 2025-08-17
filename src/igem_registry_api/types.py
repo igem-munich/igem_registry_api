@@ -17,7 +17,7 @@ Includes:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime  # noqa: TC003
 from enum import Enum
 from typing import Annotated, Any, Literal, Self
 
@@ -149,6 +149,47 @@ class AccountRoles(Enum):
     USER = "user"
 
 
+class AccountData(ClosedModel):
+    """TODO."""
+
+    uuid: UUID4 = Field(
+        title="UUID",
+        description="The unique identifier for the account.",
+    )
+    role: AccountRoles | None = Field(
+        title="Role",
+        description="The system role of the account.",
+        alias="systemRole",
+        default=None,
+    )
+    first_name: str | None = Field(
+        title="First Name",
+        description="The first name of the account user.",
+        alias="firstName",
+        default=None,
+    )
+    last_name: str | None = Field(
+        title="Last Name",
+        description="The last name of the account user.",
+        alias="lastName",
+        default=None,
+    )
+    photo: str | None = Field(
+        title="Photo",
+        description="The photo URL of the account.",
+        alias="photoURL",
+        default=None,
+    )
+    consent: bool | None = Field(
+        title="Consent",
+        description=(
+            "Whether the account user has opted in to be a contributor."
+        ),
+        alias="optedIn",
+        default=None,
+    )
+
+
 class OrganisationType(Enum):
     """Organisation types."""
 
@@ -161,27 +202,31 @@ class OrganisationType(Enum):
 
 
 class OrganisationData(ClosedModel):
-    """Data model for organisation information."""
+    """TODO."""
 
     uuid: UUID4 = Field(
         title="UUID",
         description="The unique identifier for the organisation.",
     )
-    name: str = Field(
+    name: str | None = Field(
         title="Name",
         description="The name of the organisation.",
+        default=None,
     )
-    type: OrganisationType = Field(
+    type: OrganisationType | None = Field(
         title="Type",
         description="The type of the organisation.",
+        default=None,
     )
-    link: HttpUrl = Field(
+    link: HttpUrl | None = Field(
         title="Link",
         description="The link to the organisation's website.",
+        default=None,
     )
-    audit: AuditLog = Field(
+    audit: AuditLog | None = Field(
         title="Audit",
         description="Audit information for the organisation.",
+        default=None,
         exclude=True,
         repr=False,
     )
@@ -289,6 +334,11 @@ class PartData(ClosedModel):
         description="Audit information for the part.",
         exclude=True,
         repr=False,
+    )
+
+    model_config = ConfigDict(
+        frozen=True,
+        arbitrary_types_allowed=True,
     )
 
     @model_validator(mode="before")

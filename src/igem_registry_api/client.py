@@ -17,10 +17,9 @@ from typing import TYPE_CHECKING, cast
 import requests
 from pydantic import HttpUrl, TypeAdapter
 
-from .accounts import Account
 from .calls import _call
 from .errors import ClientConnectionError, NotAuthenticatedError
-from .types import ClientMode, HealthCheck
+from .types import AccountData, ClientMode, HealthCheck
 from .utils import authenticated, connected
 
 if TYPE_CHECKING:
@@ -28,6 +27,7 @@ if TYPE_CHECKING:
 
     from pydantic import NonNegativeInt
 
+    from .accounts import Account
     from .types import RateLimit
 
 logger = logging.getLogger(__name__)
@@ -310,14 +310,18 @@ class Client:
             NotAuthenticatedError: If the client is not authenticated.
 
         """
-        return _call(
+        from .accounts import Account  # noqa: PLC0415
+
+        user = _call(
             self,
             requests.Request(
                 method="GET",
                 url=f"{self.base}/auth/me",
             ),
-            Account,
+            AccountData,
         )
+
+        return Account.from_data(self, user)
 
     @authenticated
     def opt_in(self) -> None:
@@ -368,6 +372,3 @@ class Client:
             ),
         )
         self.user = self.user.model_copy(update={"consent": False})
-
-
-Account.model_rebuild()
