@@ -18,20 +18,27 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime  # noqa: TC003
-from enum import Enum
-from typing import Annotated, Any, Literal, Self
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 from Bio.Seq import Seq
 from pydantic import (
     UUID4,
-    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
     HttpUrl,
     NonNegativeInt,
+    field_validator,
     model_validator,
 )
+
+from .utils import CleanEnum
+
+if TYPE_CHECKING:
+    from .licenses import License, PartLicense
+else:
+    License = Any
+    PartLicense = Any
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +57,11 @@ class ClosedModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         validate_assignment=True,
+        populate_by_name=True,
     )
 
 
-class ClientMode(Enum):
+class ClientMode(CleanEnum):
     """API client operation modes."""
 
     NONE = "NONE"
@@ -142,7 +150,7 @@ class AuditLog(ClosedModel):
     )
 
 
-class AccountRoles(Enum):
+class AccountRoles(CleanEnum):
     """Account roles."""
 
     ADMIN = "admin"
@@ -150,7 +158,7 @@ class AccountRoles(Enum):
 
 
 class AccountData(ClosedModel):
-    """TODO."""
+    """Data model for account information."""
 
     uuid: UUID4 = Field(
         title="UUID",
@@ -190,7 +198,7 @@ class AccountData(ClosedModel):
     )
 
 
-class OrganisationType(Enum):
+class OrganisationType(CleanEnum):
     """Organisation types."""
 
     EDUCATION = "education"
@@ -202,7 +210,7 @@ class OrganisationType(Enum):
 
 
 class OrganisationData(ClosedModel):
-    """TODO."""
+    """Data model for organization information."""
 
     uuid: UUID4 = Field(
         title="UUID",
@@ -232,7 +240,7 @@ class OrganisationData(ClosedModel):
     )
 
 
-class PartStatus(Enum):
+class PartStatus(CleanEnum):
     """Part status."""
 
     DRAFT = "draft"
@@ -241,7 +249,7 @@ class PartStatus(Enum):
     REJECTED = "rejected"
 
 
-class PartType(Enum):
+class PartType(CleanEnum):
     """Part types objects."""
 
     TERMINATOR = "828126a4-2ae9-47ce-9079-42ad82a62d32"
@@ -266,15 +274,47 @@ class PartType(Enum):
     T7 = "2fabb627-e479-45b1-853d-623edf20802c"
 
 
-class PartLicense(Enum):
-    """Part licenses."""
+class LicenseData(ClosedModel):
+    """Data model for license information."""
 
-    APACHE = "bc058bb8-abd9-419a-860e-43b0889cad89"
-    CC_BY = "d6c69ca7-8be4-4bc0-b4a8-d3ae1d428aa6"
-    CC_BY_SA = "4e38c689-4c47-456a-9e78-e11caddaa983"
-    CC0 = "5b2a6fd4-f5fa-4626-a37f-35f1ea89eec7"
-    GPL = "403dfaa8-883c-4e91-892f-ddd2f927f670"
-    MIT = "6aeb281a-d268-44da-8bdc-a80e2dce5692"
+    uuid: UUID4 = Field(
+        title="UUID",
+        description="The unique identifier for the license.",
+    )
+    spdx_id: str | None = Field(
+        title="SPDX ID",
+        description="The SPDX identifier for the license.",
+        alias="spdxID",
+        default=None,
+    )
+    name: str | None = Field(
+        title="Name",
+        description="The name of the license.",
+        alias="title",
+        default=None,
+    )
+    description: str | None = Field(
+        title="Description",
+        description="A brief description of the license.",
+        default=None,
+    )
+    icon: HttpUrl | None = Field(
+        title="Icon",
+        description="The URL to the license icon.",
+        default=None,
+    )
+    source: HttpUrl | None = Field(
+        title="Source",
+        description="The URL to the license source.",
+        alias="url",
+        default=None,
+    )
+    approved: bool | None = Field(
+        title="OSI Approved",
+        description="Whether the license is OSI approved.",
+        alias="osiApproved",
+        default=None,
+    )
 
 
 class PartData(ClosedModel):
@@ -283,6 +323,13 @@ class PartData(ClosedModel):
     uuid: UUID4 = Field(
         title="UUID",
         description="The unique identifier for the part.",
+    )
+    id: str | None = Field(
+        title="ID",
+        description="The identifier for the part.",
+        default=None,
+        exclude=True,
+        repr=False,
     )
     name: str = Field(
         title="Name",
@@ -322,10 +369,7 @@ class PartData(ClosedModel):
         description="The source of the part.",
         default=None,
     )
-    sequence: Annotated[
-        str,
-        AfterValidator(lambda seq: Seq(seq)),
-    ] = Field(
+    sequence: Seq = Field(
         title="Sequence",
         description="The sequence of the part.",
     )
@@ -348,12 +392,22 @@ class PartData(ClosedModel):
             del data["type"]
         return data
 
-    @model_validator(mode="before")
+    @field_validator("license", mode="before")
     @classmethod
-    def remove_id(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "id" in data:
-            del data["id"]
-        return data
+    def convert_license(cls, value: str) -> PartLicense:
+        """Convert a license UUID to a PartLicense enum member."""
+        from .licenses import License  # noqa: PLC0415
+
+        result = License.from_uuid(value)
+        if result is None:
+            raise ValueError
+        return result
+
+    @field_validator("sequence", mode="before")
+    @classmethod
+    def convert_sequence(cls, value: str) -> Seq:
+        """Convert a sequence string to a Seq object."""
+        return Seq(value)
 
     @model_validator(mode="after")
     def validate_name_and_slug(self) -> Self:

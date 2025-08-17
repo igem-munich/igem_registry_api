@@ -12,6 +12,7 @@ Includes:
 from __future__ import annotations
 
 import logging
+from enum import Enum
 from functools import wraps
 from typing import (
     TYPE_CHECKING,
@@ -135,7 +136,11 @@ def consented[**Params, Return](
 
     @wraps(func)
     def wrapper(*args: Params.args, **kwargs: Params.kwargs) -> Return:
-        client: Client = cast("Client", kwargs.get("client", args[0]))
+        target = kwargs.get("client", args[0])
+        if hasattr(target, "client"):
+            client = cast("Client", getattr(target, "client"))  # noqa: B009
+        else:
+            client = cast("Client", target)
         logger.debug(
             "Verifying whether client has opted in for function '%s'. "
             "Identified function's client parameter of type '%s'.",
@@ -149,3 +154,15 @@ def consented[**Params, Return](
         return func(*args, **kwargs)
 
     return wrapper
+
+
+class CleanEnum(Enum):
+    """Base enum with clean representation."""
+
+    def __repr__(self) -> str:
+        """Return a string representation of the enum member."""
+        return f"{self.__class__.__name__}.{self.name}"
+
+    def __str__(self) -> str:
+        """Return the string value of the enum member."""
+        return self.name

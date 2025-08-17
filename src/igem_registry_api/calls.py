@@ -17,7 +17,7 @@ from http import HTTPStatus
 from time import sleep
 from typing import TYPE_CHECKING, overload
 
-from pydantic import ValidationError
+from pydantic import NonNegativeInt, ValidationError
 
 from .__meta__ import __repository__, __title__, __version__
 from .errors import (
@@ -311,6 +311,8 @@ def _call_paginated[
     request: Request,
     data: type[ResponseObject],
     meta: type[MetadataObject] | None = None,
+    *,
+    limit: NonNegativeInt | None = None,
 ) -> tuple[list[ResponseObject], MetadataObject | None]:
     """Perform a paginated API call.
 
@@ -338,6 +340,8 @@ def _call_paginated[
         meta (type[ResponseObject] | None): Optional Pydantic model of the
             response metadata. When provided, function returns a validated
             instance of this model. If omitted, the function returns `None`.
+        limit (NonNegativeInt | None): Optional maximum number of items to
+            retrieve. If provided, pagination stops when this limit is reached.
 
     Returns:
         out (tuple[list[ResponseObject], MetadataObject | None]): A tuple
@@ -399,6 +403,17 @@ def _call_paginated[
             break
 
         results.extend(response.data)
+
+        if limit is not None and len(results) >= limit:
+            logger.debug(
+                "Reached limit of %s items for '%s' request to '%s', "
+                "stopping pagination.",
+                limit,
+                request.method,
+                request.url,
+            )
+            break
+
         request.params["page"] += 1
         logger.debug(
             "Cumulative items for '%s' request to '%s': %s. "
@@ -422,4 +437,4 @@ def _call_paginated[
             response.metadata,
         )
 
-    return results, response.metadata
+    return results[:limit] if limit is not None else results, response.metadata
