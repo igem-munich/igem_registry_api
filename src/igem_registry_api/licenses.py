@@ -4,10 +4,53 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import HttpUrl, TypeAdapter
+from pydantic import UUID4, Field, HttpUrl, TypeAdapter
 
-from .types import LicenseData
+from .schemas import FrozenModel
 from .utils import CleanEnum
+
+
+class LicenseData(FrozenModel):
+    """Data model for license information."""
+
+    uuid: UUID4 = Field(
+        title="UUID",
+        description="The unique identifier for the license.",
+    )
+    spdx_id: str | None = Field(
+        title="SPDX ID",
+        description="The SPDX identifier for the license.",
+        alias="spdxID",
+        default=None,
+    )
+    name: str | None = Field(
+        title="Name",
+        description="The name of the license.",
+        alias="title",
+        default=None,
+    )
+    description: str | None = Field(
+        title="Description",
+        description="A brief description of the license.",
+        default=None,
+    )
+    icon: HttpUrl | None = Field(
+        title="Icon",
+        description="The URL to the license icon.",
+        default=None,
+    )
+    source: HttpUrl | None = Field(
+        title="Source",
+        description="The URL to the license source.",
+        alias="url",
+        default=None,
+    )
+    approved: bool | None = Field(
+        title="OSI Approved",
+        description="Whether the license is OSI approved.",
+        alias="osiApproved",
+        default=None,
+    )
 
 
 class License(LicenseData):

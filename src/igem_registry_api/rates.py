@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .types import RateLimit
+from pydantic import Field, NonNegativeInt
+
+from .schemas import FrozenModel
 
 if TYPE_CHECKING:
-    from pydantic import NonNegativeInt
     from requests.structures import CaseInsensitiveDict
 
 WINDOWS: tuple[str, str, str] = ("short", "medium", "large")
@@ -32,6 +33,35 @@ __all__ = [
     "_cooldown",
     "_ratelimit",
 ]
+
+
+class RateLimit(FrozenModel):
+    """Rate limit information model for API requests."""
+
+    balance: tuple[NonNegativeInt, NonNegativeInt, NonNegativeInt] = Field(
+        title="Balance",
+        description=(
+            "Remaining requests for short, medium, and large call windows"
+        ),
+        default=(0, 0, 0),
+        alias="remaining",
+    )
+    reset: tuple[NonNegativeInt, NonNegativeInt, NonNegativeInt] = Field(
+        title="Reset",
+        description=(
+            "Reset times (seconds) for short, medium, and large call windows"
+        ),
+        default=(5, 60, 600),
+        alias="reset",
+    )
+    quota: tuple[NonNegativeInt, NonNegativeInt, NonNegativeInt] = Field(
+        title="Quota",
+        description=(
+            "Request limits for short, medium, and large call windows"
+        ),
+        default=(5, 60, 200),
+        alias="limit",
+    )
 
 
 def _ratelimit(

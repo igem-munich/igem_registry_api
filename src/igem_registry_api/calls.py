@@ -17,7 +17,7 @@ from http import HTTPStatus
 from time import sleep
 from typing import TYPE_CHECKING, overload
 
-from pydantic import NonNegativeInt, ValidationError
+from pydantic import BaseModel, Field, NonNegativeInt, ValidationError
 
 from .__meta__ import __repository__, __title__, __version__
 from .errors import (
@@ -36,13 +36,11 @@ from .rates import (
     _cooldown,
     _ratelimit,
 )
-from .types import PaginatedResponse
 
 if TYPE_CHECKING:
     from requests import Request
 
     from .client import Client
-    from .types import ClosedModel
 
 
 logger = logging.getLogger(__name__)
@@ -54,6 +52,42 @@ __all__ = [
 ]
 
 
+class PaginatedResponse[
+    ResponseObject: BaseModel,
+    MetadataObject: BaseModel | None,
+](
+    BaseModel,
+):
+    """Generic model for API responses that return paginated data.
+
+    This model wraps a list of response objects together with the current page
+    number, the total number of available objects, and optional metadata
+    provided by the API.
+    """
+
+    data: list[ResponseObject] = Field(
+        title="Data",
+        description="A list of data objects returned in the response.",
+        min_length=0,
+        max_length=100,
+    )
+    page: int = Field(
+        title="Page",
+        description="The current page number.",
+        ge=1,
+    )
+    total: int = Field(
+        title="Total",
+        description="The total number of objects available.",
+        ge=0,
+    )
+    metadata: MetadataObject | None = Field(
+        title="Metadata",
+        description="Additional metadata about the response.",
+        default=None,
+    )
+
+
 @overload
 def _call(
     client: Client,
@@ -63,7 +97,7 @@ def _call(
 
 
 @overload
-def _call[ResponseObject: ClosedModel](
+def _call[ResponseObject: BaseModel](
     client: Client,
     request: Request,
     data: type[ResponseObject],
@@ -304,8 +338,8 @@ def _call(  # noqa: C901, PLR0912, PLR0915
 
 
 def _call_paginated[
-    ResponseObject: ClosedModel,
-    MetadataObject: ClosedModel | None,
+    ResponseObject: BaseModel,
+    MetadataObject: BaseModel | None,
 ](
     client: Client,
     request: Request,

@@ -3,37 +3,72 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Self
 
 import requests
-from pydantic import ConfigDict, Field, SkipValidation
+from pydantic import UUID4, Field, HttpUrl
 
 from .calls import _call, _call_paginated
-from .types import AccountData, OrganisationData
-from .utils import authenticated
+from .client import Client  # noqa: TC001
+from .schemas import ArbitraryModel, AuditLog
+from .utils import CleanEnum, authenticated
 
 if TYPE_CHECKING:
     from .accounts import Account
-    from .client import Client
-else:
-    Client = Any
 
 logger = logging.getLogger(__name__)
+
+
+class OrganisationType(CleanEnum):
+    """Organisation types."""
+
+    EDUCATION = "education"
+    COMPANY = "company"
+    NON_PROFIT = "non-profit"
+    GOVERNMENT = "government"
+    IGEM_TEAM = "igem-team"
+    OTHER = "other"
+
+
+class OrganisationData(ArbitraryModel):
+    """Data model for organization information."""
+
+    uuid: UUID4 = Field(
+        title="UUID",
+        description="The unique identifier for the organisation.",
+    )
+    name: str | None = Field(
+        title="Name",
+        description="The name of the organisation.",
+        default=None,
+    )
+    type: OrganisationType | None = Field(
+        title="Type",
+        description="The type of the organisation.",
+        default=None,
+    )
+    link: HttpUrl | None = Field(
+        title="Link",
+        description="The link to the organisation's website.",
+        default=None,
+    )
+    audit: AuditLog | None = Field(
+        title="Audit",
+        description="Audit information for the organisation.",
+        default=None,
+        exclude=True,
+        repr=False,
+    )
 
 
 class Organisation(OrganisationData):
     """TODO."""
 
-    client: SkipValidation[Client] = Field(
+    client: Client = Field(
         title="Client",
         description="Registry API client instance.",
         exclude=True,
         repr=False,
-    )
-
-    model_config = ConfigDict(
-        frozen=True,
-        arbitrary_types_allowed=True,
     )
 
     @classmethod
@@ -78,7 +113,7 @@ class Organisation(OrganisationData):
             NotAuthenticatedError: If the client is not authenticated.
 
         """
-        from .accounts import Account  # noqa: PLC0415
+        from .accounts import Account, AccountData  # noqa: PLC0415
 
         users, _ = _call_paginated(
             self.client,

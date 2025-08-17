@@ -12,15 +12,15 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import requests
-from pydantic import HttpUrl, TypeAdapter
+from pydantic import Field, HttpUrl, TypeAdapter
 
 from .calls import _call
 from .errors import ClientConnectionError, NotAuthenticatedError
-from .types import AccountData, ClientMode, HealthCheck
-from .utils import authenticated, connected
+from .schemas import FrozenModel
+from .utils import CleanEnum, authenticated, connected
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
@@ -28,14 +28,92 @@ if TYPE_CHECKING:
     from pydantic import NonNegativeInt
 
     from .accounts import Account
-    from .types import RateLimit
+    from .rates import RateLimit
 
 logger = logging.getLogger(__name__)
 
 
 __all__ = [
     "Client",
+    "ClientMode",
+    "HealthCheck",
 ]
+
+
+class ClientMode(CleanEnum):
+    """API client operation modes."""
+
+    NONE = "NONE"
+    ANON = "ANON"
+    AUTH = "AUTH"
+
+
+class StatusItem(FrozenModel):
+    """Data model for resource status."""
+
+    status: Literal["up", "down"] = Field(
+        title="Status",
+        description="The status of the resource.",
+    )
+
+
+class ServerInfo(StatusItem):
+    """Data model for backend server information."""
+
+    environment: Literal["production", "staging", "development"] = Field(
+        title="Environment",
+        description="The environment in which the server is running.",
+    )
+    version: str = Field(
+        title="Version",
+        description="The version of the server.",
+    )
+
+
+class ResourceData(FrozenModel):
+    """Data model for registry resources."""
+
+    server: ServerInfo | None = Field(
+        title="Server",
+        description="Data about the server status.",
+        default=None,
+    )
+    database: StatusItem | None = Field(
+        title="Database",
+        description="Data about the database status.",
+        default=None,
+    )
+    memory_rss: StatusItem | None = Field(
+        title="Memory RSS",
+        description="Data about the memory RSS status.",
+        default=None,
+    )
+    redis: StatusItem | None = Field(
+        title="Redis",
+        description="Data about the Redis status.",
+        default=None,
+    )
+
+
+class HealthCheck(FrozenModel):
+    """Health check model for the registry instance."""
+
+    status: Literal["ok", "error"] = Field(
+        title="Status",
+        description="Registry instance health status.",
+    )
+    info: ResourceData = Field(
+        title="Info",
+        description="Information about the registry instance resources.",
+    )
+    error: ResourceData = Field(
+        title="Error",
+        description="Errors encountered by the registry instance resources.",
+    )
+    details: ResourceData = Field(
+        title="Details",
+        description="Further details about the registry instance resources.",
+    )
 
 
 class Client:
@@ -310,7 +388,7 @@ class Client:
             NotAuthenticatedError: If the client is not authenticated.
 
         """
-        from .accounts import Account  # noqa: PLC0415
+        from .accounts import Account, AccountData  # noqa: PLC0415
 
         user = _call(
             self,
