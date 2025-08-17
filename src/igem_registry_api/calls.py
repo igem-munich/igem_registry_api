@@ -292,7 +292,10 @@ def _call(  # noqa: C901, PLR0912, PLR0915
             request.url,
             response.content[:500],
         )
-        return data.model_validate_json(response.content)
+        result = response.json()
+        if "client" in data.model_fields:
+            return data(**result, client=client)
+        return data(**result)
     except ValidationError as e:
         msg = (
             f"Failed to parse response content for '{request.method}' "

@@ -51,7 +51,11 @@ def connected[**Params, Return](
 
     @wraps(func)
     def wrapper(*args: Params.args, **kwargs: Params.kwargs) -> Return:
-        client: Client = cast("Client", kwargs.get("client", args[0]))
+        target = kwargs.get("client", args[0])
+        if hasattr(target, "client"):
+            client = cast("Client", getattr(target, "client"))  # noqa: B009
+        else:
+            client = cast("Client", target)
         logger.debug(
             "Verifying client connection for function '%s'. "
             "Identified function's client parameter of type '%s'.",
@@ -89,7 +93,11 @@ def authenticated[**Params, Return](
 
     @wraps(func)
     def wrapper(*args: Params.args, **kwargs: Params.kwargs) -> Return:
-        client: Client = cast("Client", kwargs.get("client", args[0]))
+        target = kwargs.get("client", args[0])
+        if hasattr(target, "client"):
+            client = cast("Client", getattr(target, "client"))  # noqa: B009
+        else:
+            client = cast("Client", target)
         logger.debug(
             "Verifying client authentication for function '%s'. "
             "Identified function's client parameter of type '%s'.",

@@ -12,16 +12,15 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import requests
-from pydantic import UUID4, HttpUrl, TypeAdapter
+from pydantic import HttpUrl, TypeAdapter
 
+from .accounts import Account
 from .calls import _call
-from .errors import (
-    ClientConnectionError,
-)
-from .types import ClientMode, HealthCheck, UserData
+from .errors import ClientConnectionError, NotAuthenticatedError
+from .types import ClientMode, HealthCheck
 from .utils import authenticated, connected
 
 if TYPE_CHECKING:
@@ -148,9 +147,7 @@ class Client:
         self.ratelimit: RateLimit | None = None
         self.cooldown: NonNegativeInt = 0
 
-        self.username: str | None = None
-        self.uuid: UUID4 | None = None
-        self.consent: bool | None = None
+        self.user: Account | None = None
 
     @property
     def is_none(self) -> bool:
@@ -170,7 +167,9 @@ class Client:
     @property
     def is_opted_in(self) -> bool:
         """Check if the client is opted in."""
-        return self.consent is True
+        if self.user is None:
+            return False
+        return self.user.consent is True
 
     def connect(self) -> None:
         """Connect the client to the API.
@@ -209,10 +208,8 @@ class Client:
         """
         logger.info("Disconnecting client from API.")
         self.session.close()
+        self.user = None
         self.mode = ClientMode.NONE
-        self.username = None
-        self.uuid = None
-        self.consent = None
 
     @connected
     def health(self) -> HealthCheck:
@@ -273,12 +270,9 @@ class Client:
             ),
         )
 
-        user: UserData = inspect.unwrap(Client.me)(self)
-
+        self.user = cast("Account", inspect.unwrap(Client.me)(self))
+        self.user.set_username(username)
         self.mode = ClientMode.AUTH
-        self.username = username
-        self.uuid = user.uuid
-        self.consent = user.consent
 
     @authenticated
     def sign_out(self) -> None:
@@ -288,7 +282,11 @@ class Client:
             NotAuthenticatedError: If the client is not authenticated.
 
         """
-        logger.info("Signing out user %s", self.username)
+        if self.user is None:
+            msg = f"Authentication required for {self.sign_out.__name__}()"
+            logger.error(msg)
+            raise NotAuthenticatedError(msg)
+        logger.info("Signing out user %s", self.user.username)
         _call(
             self,
             requests.Request(
@@ -298,13 +296,11 @@ class Client:
         )
 
         self.session.cookies.clear()
+        self.user = None
         self.mode = ClientMode.ANON
-        self.username = None
-        self.uuid = None
-        self.consent = None
 
     @authenticated
-    def me(self) -> UserData:
+    def me(self) -> Account:
         """Get information about the authenticated user.
 
         Returns:
@@ -320,7 +316,7 @@ class Client:
                 method="GET",
                 url=f"{self.base}/auth/me",
             ),
-            UserData,
+            Account,
         )
 
     @authenticated
@@ -331,8 +327,12 @@ class Client:
             NotAuthenticatedError: If the client is not authenticated.
 
         """
-        logger.info("Opting in user %s", self.username)
-        if self.consent:
+        if self.user is None:
+            msg = f"Authentication required for {self.opt_in.__name__}()"
+            logger.error(msg)
+            raise NotAuthenticatedError(msg)
+        logger.info("Opting in user %s", self.user.username)
+        if self.user.consent:
             logger.error("User already opted in.")
             return
         _call(
@@ -342,7 +342,7 @@ class Client:
                 url=f"{self.base}/accounts/opt-in",
             ),
         )
-        self.consent = True
+        self.user = self.user.model_copy(update={"consent": True})
 
     @authenticated
     def opt_out(self) -> None:
@@ -352,8 +352,12 @@ class Client:
             NotAuthenticatedError: If the client is not authenticated.
 
         """
-        logger.info("Opting out user %s", self.username)
-        if not self.consent:
+        if self.user is None:
+            msg = f"Authentication required for {self.opt_out.__name__}()"
+            logger.error(msg)
+            raise NotAuthenticatedError(msg)
+        logger.info("Opting out user %s", self.user.username)
+        if not self.user.consent:
             logger.error("User already opted out.")
             return
         _call(
@@ -363,4 +367,7 @@ class Client:
                 url=f"{self.base}/accounts/opt-out",
             ),
         )
-        self.consent = False
+        self.user = self.user.model_copy(update={"consent": False})
+
+
+Account.model_rebuild()
