@@ -26,6 +26,7 @@ class Account(ClosedModel):
         title="Client",
         description="Registry API client instance.",
         exclude=True,
+        repr=False,
     )
     uuid: UUID4 = Field(
         title="UUID",

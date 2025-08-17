@@ -182,6 +182,8 @@ class OrganisationData(ClosedModel):
     audit: AuditLog = Field(
         title="Audit",
         description="Audit information for the organisation.",
+        exclude=True,
+        repr=False,
     )
 
 
@@ -241,6 +243,7 @@ class PartData(ClosedModel):
         title="Name",
         description="The name of the part.",
         pattern=r"^BBa_[A-Z0-9]{1,10}$",
+        repr=False,
     )
     slug: str = Field(
         title="Slug",
@@ -284,6 +287,8 @@ class PartData(ClosedModel):
     audit: AuditLog = Field(
         title="Audit",
         description="Audit information for the part.",
+        exclude=True,
+        repr=False,
     )
 
     @model_validator(mode="before")
