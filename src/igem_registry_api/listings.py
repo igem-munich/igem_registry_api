@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING, Literal
 import requests
 
 from .calls import _call_paginated
-from .categories import Category, CategoryData
-from .licenses import License, LicenseData
-from .organisations import Organisation, OrganisationData
-from .parts import Part, PartData
-from .types import Type, TypeData
+from .category import Category, CategoryData
+from .license import License, LicenseData
+from .organisation import Organisation, OrganisationData
+from .part import Part, PartData
+from .type import Type, TypeData
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -89,14 +89,9 @@ def types(
     *,
     sort: Literal[
         "uuid",
-        "name",
+        "label",
         "slug",
-        "status",
-        "title",
-        "description",
-        "audit.created",
-        "audit.updated",
-    ] = "audit.created",
+    ] = "label",
     order: Literal["asc", "desc"] = "asc",
     limit: NonNegativeInt | None = None,
 ) -> list[Type]:
@@ -105,7 +100,7 @@ def types(
         client,
         requests.Request(
             method="GET",
-            url=f"{client.base}/types",
+            url=f"{client.base}/parts/types",
             params={
                 "orderBy": sort,
                 "order": order.upper(),
@@ -123,6 +118,7 @@ def categories(
     sort: Literal[
         "uuid",
         "label",
+        "value",
         "description",
     ] = "label",
     order: Literal["asc", "desc"] = "asc",
@@ -133,7 +129,7 @@ def categories(
         client,
         requests.Request(
             method="GET",
-            url=f"{client.base}/categories",
+            url=f"{client.base}/parts/categories",
             params={
                 "orderBy": sort,
                 "order": order.upper(),
@@ -167,7 +163,7 @@ def parts(
     order: Literal["asc", "desc"] = "asc",
     limit: NonNegativeInt | None = None,
     progress: Callable | None = None,
-) -> list[PartData]:
+) -> list[Part]:
     """Fetch a list of parts."""
     parts, _ = _call_paginated(
         client,

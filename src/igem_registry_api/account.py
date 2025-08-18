@@ -10,12 +10,12 @@ from pydantic import UUID4, Field, NonNegativeInt, PrivateAttr
 
 from .calls import _call_paginated
 from .client import Client  # noqa: TC001
-from .parts import Part, PartData
+from .part import Part, PartData
 from .schemas import ArbitraryModel
 from .utils import CleanEnum, authenticated
 
 if TYPE_CHECKING:
-    from .organisations import Organisation
+    from .organisation import Organisation
 
 
 logger = logging.getLogger(__name__)
@@ -151,7 +151,7 @@ class Account(AccountData):
             NotAuthenticatedError: If the client is not authenticated.
 
         """
-        from .organisations import (  # noqa: PLC0415
+        from .organisation import (  # noqa: PLC0415
             Organisation,
             OrganisationData,
         )

@@ -15,11 +15,12 @@ from rich.progress import (
     MofNCompleteColumn,
     Progress,
     SpinnerColumn,
+    TaskProgressColumn,
     TextColumn,
     TimeElapsedColumn,
 )
 
-from igem_registry_api import Client, parts
+from igem_registry_api import Client, dump, parts
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -59,6 +60,7 @@ def progress_render(queue: Queue[tuple[int, int | None]]) -> None:
         TextColumn("[bold]Fetching parts[/bold]"),
         BarColumn(),
         MofNCompleteColumn(),
+        TaskProgressColumn(),
         TimeElapsedColumn(),
         transient=True,
         console=console,
@@ -105,7 +107,11 @@ if __name__ == "__main__":
     # 4. Save to Brotli-compressed JSON
     DATA.parent.mkdir(parents=True, exist_ok=True)
     with DATA.open("wb") as file:
-        data = json.dumps(all_parts, default=str).encode("utf-8")
+        data = json.dumps(
+            all_parts,
+            indent=2,
+            default=dump(),
+        ).encode("utf-8")
         file.write(brotli.compress(data))
 
     console.print(f"[green]Wrote[/green] {DATA} ({len(all_parts):,} parts)")

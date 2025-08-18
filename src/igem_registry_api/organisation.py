@@ -14,7 +14,7 @@ from .schemas import ArbitraryModel, AuditLog
 from .utils import CleanEnum, authenticated
 
 if TYPE_CHECKING:
-    from .accounts import Account
+    from .account import Account
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ class Organisation(OrganisationData):
             NotAuthenticatedError: If the client is not authenticated.
 
         """
-        from .accounts import Account, AccountData  # noqa: PLC0415
+        from .account import Account, AccountData  # noqa: PLC0415
 
         users, _ = _call_paginated(
             self.client,

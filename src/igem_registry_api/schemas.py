@@ -19,8 +19,8 @@ from pydantic import (
 )
 
 if TYPE_CHECKING:
-    from .licenses import PartLicense
-    from .types import PartType
+    from .license import PartLicense
+    from .type import PartType
 else:
     PartLicense = Any
     PartType = Any

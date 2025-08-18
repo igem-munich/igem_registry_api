@@ -107,8 +107,8 @@ class PartType(CleanEnum):
         label="Coding",
         description=(
             "A nucleic acid sequence that encodes a protein or a peptide. "
-            "Coding sequences should begin with a start codon (3'-ATG) and "
-            "end with a double stop (TAATAA-5')."
+            "Coding sequences (CDS) should begin with a start codon (3'-ATG) "
+            "and end with a double stop (TAATAA-5')."
         ),
     )
     REPORTER = Type(
@@ -128,7 +128,9 @@ class PartType(CleanEnum):
         slug="regulatory",
         label="Regulatory",
         description=(
-            "A nucleic acid sequence that regulates the expression of a gene."
+            "A nucleic acid sequence that regulates the expression of a gene. "
+            "Typically, this part type includes enhancers, silencers, and "
+            "insulators."
         ),
     )
     RNA = Type(

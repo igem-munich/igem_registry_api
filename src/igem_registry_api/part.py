@@ -6,12 +6,18 @@ import logging
 from typing import Self
 
 from Bio.Seq import Seq
-from pydantic import UUID4, Field, field_validator, model_validator
+from pydantic import (
+    UUID4,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from .client import Client  # noqa: TC001
-from .licenses import License, PartLicense
+from .license import License, PartLicense
 from .schemas import ArbitraryModel, AuditLog
-from .types import PartType, Type
+from .type import PartType, Type
 from .utils import CleanEnum
 
 logger = logging.getLogger(__name__)
@@ -151,6 +157,11 @@ class PartData(ArbitraryModel):
             logger.error(msg)
             raise ValueError(msg)
         return self
+
+    @field_serializer("sequence", mode="plain")
+    def serialize_sequence(self, value: Seq) -> str:
+        """TODO."""
+        return str(value)
 
 
 class Part(PartData):

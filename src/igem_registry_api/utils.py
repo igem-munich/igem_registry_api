@@ -16,8 +16,12 @@ from enum import Enum
 from functools import wraps
 from typing import (
     TYPE_CHECKING,
+    Any,
     cast,
 )
+
+import pydantic_core
+from pydantic import BaseModel
 
 from .errors import NotAuthenticatedError, NotConnectedError, NotOptedInError
 
@@ -166,3 +170,15 @@ class CleanEnum(Enum):
     def __str__(self) -> str:
         """Return the string value of the enum member."""
         return self.name
+
+
+def dump(**kwargs: Any) -> Callable:
+    """TODO."""
+
+    def base_encoder(obj: object) -> dict:
+        """TODO."""
+        if isinstance(obj, BaseModel):
+            return obj.model_dump(**kwargs)
+        return pydantic_core.to_jsonable_python(obj)
+
+    return base_encoder

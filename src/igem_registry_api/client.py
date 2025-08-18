@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
     from pydantic import NonNegativeInt
 
-    from .accounts import Account
+    from .account import Account
     from .rates import RateLimit
 
 logger = logging.getLogger(__name__)
@@ -388,7 +388,7 @@ class Client:
             NotAuthenticatedError: If the client is not authenticated.
 
         """
-        from .accounts import Account, AccountData  # noqa: PLC0415
+        from .account import Account, AccountData  # noqa: PLC0415
 
         user = _call(
             self,
