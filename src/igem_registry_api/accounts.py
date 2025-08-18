@@ -10,7 +10,7 @@ from pydantic import UUID4, Field, NonNegativeInt, PrivateAttr
 
 from .calls import _call_paginated
 from .client import Client  # noqa: TC001
-from .parts import PartData
+from .parts import Part, PartData
 from .schemas import ArbitraryModel
 from .utils import CleanEnum, authenticated
 
@@ -193,7 +193,7 @@ class Account(AccountData):
         ] = "audit.created",
         order: Literal["asc", "desc"] = "asc",
         limit: NonNegativeInt | None = None,
-    ) -> list[PartData]:
+    ) -> list[Part]:
         """Get parts authored by the account user.
 
         Args:
@@ -222,4 +222,4 @@ class Account(AccountData):
             PartData,
             limit=limit,
         )
-        return parts
+        return [Part.from_data(self.client, part) for part in parts]

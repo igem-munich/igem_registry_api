@@ -447,7 +447,7 @@ def _call_paginated[  # noqa: PLR0913
         if progress:
             progress(
                 current=len(results),
-                total=min(limit or int("inf"), response.total),
+                total=min(limit or float("inf"), response.total),
             )
 
         if limit is not None and len(results) >= limit:

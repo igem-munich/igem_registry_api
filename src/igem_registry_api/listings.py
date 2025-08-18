@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal
 
 import requests
@@ -15,6 +14,8 @@ from .parts import Part, PartData
 from .types import Type, TypeData
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from pydantic import NonNegativeInt
 
     from .client import Client

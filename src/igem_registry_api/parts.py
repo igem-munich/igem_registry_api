@@ -66,6 +66,7 @@ class PartData(ArbitraryModel):
     type: PartType = Field(
         title="Type",
         description="The type of the part.",
+        alias="typeUUID",
     )
     license: PartLicense = Field(
         title="License",
@@ -81,25 +82,35 @@ class PartData(ArbitraryModel):
         title="Sequence",
         description="The sequence of the part.",
     )
-    audit: AuditLog = Field(
+    audit: AuditLog | None = Field(
         title="Audit",
         description="Audit information for the part.",
+        default=None,
         exclude=True,
         repr=False,
     )
 
     @model_validator(mode="before")
     @classmethod
-    def remove_type_uuid(cls, data: dict) -> dict:
+    def extract_type_uuid(cls, data: dict) -> dict:
         """Remove the 'typeUUID' key from the input dictionary."""
-        if "typeUUID" in data:
-            data.pop("typeUUID")
+        if (
+            "type" in data
+            and isinstance(data["type"], dict)
+            and "uuid" in data["type"]
+        ):
+            data["typeUUID"] = data["type"]["uuid"]
+        data.pop("type", None)
         return data
 
     @field_validator("license", mode="before")
     @classmethod
-    def convert_license(cls, value: str) -> PartLicense:
+    def convert_license(cls, value: object) -> PartLicense:
         """Convert a license UUID to a PartLicense enum member."""
+        if isinstance(value, PartLicense):
+            return value
+        if not isinstance(value, str):
+            raise TypeError
         result = License.from_uuid(value)
         if result is None:
             raise ValueError
@@ -107,19 +118,25 @@ class PartData(ArbitraryModel):
 
     @field_validator("type", mode="before")
     @classmethod
-    def convert_type(cls, value: dict) -> PartType:
+    def convert_type(cls, value: object) -> PartType:
         """Convert a type UUID to a PartType enum member."""
-        if "uuid" not in value:
-            raise ValueError
-        result = Type.from_uuid(value["uuid"])
+        if isinstance(value, PartType):
+            return value
+        if not isinstance(value, str):
+            raise TypeError
+        result = Type.from_uuid(value)
         if result is None:
             raise ValueError
         return result
 
     @field_validator("sequence", mode="before")
     @classmethod
-    def convert_sequence(cls, value: str) -> Seq:
+    def convert_sequence(cls, value: object) -> Seq:
         """Convert a sequence string to a Seq object."""
+        if isinstance(value, Seq):
+            return value
+        if not isinstance(value, str):
+            raise TypeError
         return Seq(value)
 
     @model_validator(mode="after")
