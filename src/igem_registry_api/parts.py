@@ -6,10 +6,11 @@ import logging
 from typing import Self
 
 from Bio.Seq import Seq
-from pydantic import UUID4, ConfigDict, Field, field_validator, model_validator
+from pydantic import UUID4, Field, field_validator, model_validator
 
+from .client import Client  # noqa: TC001
 from .licenses import License, PartLicense
-from .schemas import AuditLog, FrozenModel
+from .schemas import ArbitraryModel, AuditLog
 from .types import PartType, Type
 from .utils import CleanEnum
 
@@ -25,7 +26,7 @@ class PartStatus(CleanEnum):
     REJECTED = "rejected"
 
 
-class PartData(FrozenModel):
+class PartData(ArbitraryModel):
     """Data model for part information."""
 
     uuid: UUID4 = Field(
@@ -65,7 +66,6 @@ class PartData(FrozenModel):
     type: PartType = Field(
         title="Type",
         description="The type of the part.",
-        alias="typeUUID",
     )
     license: PartLicense = Field(
         title="License",
@@ -88,16 +88,12 @@ class PartData(FrozenModel):
         repr=False,
     )
 
-    model_config = ConfigDict(
-        arbitrary_types_allowed=True,
-    )
-
     @model_validator(mode="before")
     @classmethod
-    def remove_type_object(cls, data: dict) -> dict:
-        """Remove the 'type' key from the input dictionary."""
-        if isinstance(data, dict) and "type" in data:
-            del data["type"]
+    def remove_type_uuid(cls, data: dict) -> dict:
+        """Remove the 'typeUUID' key from the input dictionary."""
+        if "typeUUID" in data:
+            data.pop("typeUUID")
         return data
 
     @field_validator("license", mode="before")
@@ -111,9 +107,11 @@ class PartData(FrozenModel):
 
     @field_validator("type", mode="before")
     @classmethod
-    def convert_type(cls, value: str) -> PartType:
+    def convert_type(cls, value: dict) -> PartType:
         """Convert a type UUID to a PartType enum member."""
-        result = Type.from_uuid(value)
+        if "uuid" not in value:
+            raise ValueError
+        result = Type.from_uuid(value["uuid"])
         if result is None:
             raise ValueError
         return result
@@ -136,3 +134,24 @@ class PartData(FrozenModel):
             logger.error(msg)
             raise ValueError(msg)
         return self
+
+
+class Part(PartData):
+    """TODO."""
+
+    client: Client = Field(
+        title="Client",
+        description="Registry API client instance.",
+        exclude=True,
+        repr=False,
+    )
+
+    @classmethod
+    def from_data(
+        cls: type[Self],
+        client: Client,
+        data: PartData,
+    ) -> Self:
+        """Create a Part instance from PartData."""
+        payload = data.model_dump(by_alias=True)
+        return cls.model_validate({**payload, "client": client})

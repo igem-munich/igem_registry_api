@@ -26,6 +26,7 @@ def authenticate(client: Client) -> None:
 
 if __name__ == "__main__":
     console = Console()
+
     # 1. Create an authenticated client instance
     client = Client()
     authenticate(client)

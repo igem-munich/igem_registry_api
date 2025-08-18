@@ -106,9 +106,9 @@ class PartType(CleanEnum):
         slug="coding",
         label="Coding",
         description=(
-            "A nucleic acid sequence that encodes a full or partial protein "
-            "or protein or peptide. Complete coding sequences begin with a "
-            "start codon (3'-ATG) and end with a double stop (TAATAA-5')."
+            "A nucleic acid sequence that encodes a protein or a peptide. "
+            "Coding sequences should begin with a start codon (3'-ATG) and "
+            "end with a double stop (TAATAA-5')."
         ),
     )
     REPORTER = Type(
@@ -128,10 +128,7 @@ class PartType(CleanEnum):
         slug="regulatory",
         label="Regulatory",
         description=(
-            "A nucleic acid sequence that regulates the expression of a gene, "
-            "typically a promoter that recruits transcriptional machinery and "
-            "leads to transcription of the downstream DNA sequence. This part "
-            "type also includes RNA promoters involved in RNA replication."
+            "A nucleic acid sequence that regulates the expression of a gene."
         ),
     )
     RNA = Type(
@@ -286,5 +283,43 @@ class PartType(CleanEnum):
             "This part type reflects the use of T7 phage as a model system "
             "and expression platform, notable for the testing of genetic "
             "parts and devices."
+        ),
+    )
+    PROTEIN_DOMAIN = Type(
+        uuid=UUID("e4156669-594b-4100-8df9-af208b8e8c97"),
+        slug="protein-domain",
+        label="Protein Domain",
+        description=(
+            "A nucleic acid sequence that encodes a part of a protein."
+        ),
+    )
+    SCAR = Type(
+        uuid=UUID("9e0c5a67-0a07-48fd-ace3-e94e06820291"),
+        slug="scar",
+        label="Scar",
+        description=(
+            "A nucleic acid sequence that is a scar left after the assembly "
+            "of a composite part, typically resulting from the use of "
+            "restriction enzymes and ligation."
+        ),
+    )
+    PROMOTER = Type(
+        uuid=UUID("0f026097-b490-41eb-b042-78316fc4f218"),
+        slug="promoter",
+        label="Promoter",
+        description=(
+            "A nucleic acid sequence that initiates transcription of a gene, "
+            "typically a promoter that recruits transcriptional machinery and "
+            "leads to transcription of the downstream DNA sequence. This part "
+            "type also includes RNA promoters involved in RNA replication."
+        ),
+    )
+    MISCELLANEOUS = Type(
+        uuid=UUID("56828cb1-3c65-4833-bd2c-dcdddd8d043b"),
+        slug="miscellaneous",
+        label="Miscellaneous",
+        description=(
+            "A part that does not fit into any other category, due to its "
+            "unique or undefined functions."
         ),
     )

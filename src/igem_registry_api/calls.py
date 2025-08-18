@@ -38,6 +38,8 @@ from .rates import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from requests import Request
 
     from .client import Client
@@ -337,7 +339,7 @@ def _call(  # noqa: C901, PLR0912, PLR0915
         raise ResponseValidationError(msg) from e
 
 
-def _call_paginated[
+def _call_paginated[  # noqa: PLR0913
     ResponseObject: BaseModel,
     MetadataObject: BaseModel | None,
 ](
@@ -347,6 +349,7 @@ def _call_paginated[
     meta: type[MetadataObject] | None = None,
     *,
     limit: NonNegativeInt | None = None,
+    progress: Callable | None = None,
 ) -> tuple[list[ResponseObject], MetadataObject | None]:
     """Perform a paginated API call.
 
@@ -376,6 +379,10 @@ def _call_paginated[
             instance of this model. If omitted, the function returns `None`.
         limit (NonNegativeInt | None): Optional maximum number of items to
             retrieve. If provided, pagination stops when this limit is reached.
+        progress (Callable | None): Optional callback function to report
+            progress updates during pagination. It receives two arguments:
+            - `current`: The current number of items retrieved.
+            - `total`: The total number of items to retrieve.
 
     Returns:
         out (tuple[list[ResponseObject], MetadataObject | None]): A tuple
@@ -437,6 +444,11 @@ def _call_paginated[
             break
 
         results.extend(response.data)
+        if progress:
+            progress(
+                current=len(results),
+                total=min(limit or int("inf"), response.total),
+            )
 
         if limit is not None and len(results) >= limit:
             logger.debug(

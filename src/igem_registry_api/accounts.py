@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Literal, Self
 
 import requests
 from pydantic import UUID4, Field, NonNegativeInt, PrivateAttr
@@ -124,11 +124,23 @@ class Account(AccountData):
     @authenticated
     def affiliations(
         self,
+        *,
+        sort: Literal[
+            "uuid",
+            "name",
+            "type",
+            "link",
+            "audit.created",
+            "audit.updated",
+        ] = "name",
+        order: Literal["asc", "desc"] = "asc",
         limit: NonNegativeInt | None = None,
     ) -> list[Organisation]:
         """Get account affiliations.
 
         Args:
+            sort (Literal[str]): The field to sort the organisations by.
+            order (Literal[str]): The order of sorting, either 'asc' or 'desc'.
             limit (NonNegativeInt | None): The maximum number of organisations
                 to  retrieve.
 
@@ -149,6 +161,10 @@ class Account(AccountData):
             requests.Request(
                 method="GET",
                 url=f"{self.client.base}/accounts/{self.uuid}/affiliations",
+                params={
+                    "orderBy": sort,
+                    "order": order.upper(),
+                },
             ),
             OrganisationData,
             limit=limit,
@@ -156,10 +172,33 @@ class Account(AccountData):
         return [Organisation.from_data(self.client, org) for org in orgs]
 
     @authenticated
-    def parts(self, limit: NonNegativeInt | None = None) -> list[PartData]:
+    def parts(
+        self,
+        *,
+        sort: Literal[
+            "uuid",
+            "name",
+            "slug",
+            "status",
+            "title",
+            "description",
+            "type.uuid",
+            "type.label",
+            "type.slug",
+            "licenseUUID",
+            "source",
+            "sequence",
+            "audit.created",
+            "audit.updated",
+        ] = "audit.created",
+        order: Literal["asc", "desc"] = "asc",
+        limit: NonNegativeInt | None = None,
+    ) -> list[PartData]:
         """Get parts authored by the account user.
 
         Args:
+            sort (Literal[str]): The field to sort the parts by.
+            order (Literal[str]): The order of sorting, either 'asc' or 'desc'.
             limit (NonNegativeInt | None): The maximum number of parts to
                 retrieve.
 
@@ -175,6 +214,10 @@ class Account(AccountData):
             requests.Request(
                 method="GET",
                 url=f"{self.client.base}/parts/accounts/{self.uuid}",
+                params={
+                    "orderBy": sort,
+                    "order": order.upper(),
+                },
             ),
             PartData,
             limit=limit,

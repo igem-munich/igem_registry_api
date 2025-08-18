@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Literal, Self
 
 import requests
 from pydantic import UUID4, Field, HttpUrl, NonNegativeInt
@@ -102,15 +102,29 @@ class Organisation(OrganisationData):
         )
 
     @authenticated
-    def members(self, limit: NonNegativeInt | None = None) -> list[Account]:
+    def members(
+        self,
+        *,
+        sort: Literal[
+            "uuid",
+            "firstName",
+            "lastName",
+            "systemRole",
+            "photoURL",
+        ] = "firstName",
+        order: Literal["asc", "desc"] = "asc",
+        limit: NonNegativeInt | None = None,
+    ) -> list[Account]:
         """Get a list of members in the organisation.
 
         Args:
+            sort (Literal[str]): The field to sort the members by.
+            order (Literal[str]): The order of sorting, either 'asc' or 'desc'.
             limit (NonNegativeInt | None): The maximum number of members to
                 retrieve.
 
         Returns:
-            list[Account]: A list of accounts that are members of the
+            out (list[Account]): A list of accounts that are members of the
                 organisation.
 
         Raises:
@@ -124,6 +138,10 @@ class Organisation(OrganisationData):
             requests.Request(
                 method="GET",
                 url=f"{self.client.base}/organisations/{self.uuid}/members",
+                params={
+                    "orderBy": sort,
+                    "order": order.upper(),
+                },
             ),
             AccountData,
             limit=limit,
