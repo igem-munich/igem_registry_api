@@ -143,7 +143,7 @@ def format_result(path: Path) -> Iterable[Table]:
 
                 length = hsp.align_length
                 identities = hsp.identities
-                identity = (100.0 * identities / length) if length else 0.0
+                identity = 100.0 * identities / length
                 gaps = hsp.gaps
                 mismatches = length - identities - gaps
 
