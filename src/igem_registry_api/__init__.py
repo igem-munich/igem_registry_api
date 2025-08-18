@@ -4,7 +4,6 @@ from .account import Account
 from .category import Category
 from .client import Client
 from .license import License
-from .listings import categories, licenses, organisations, parts, types
 from .organisation import Organisation
 from .part import Part
 from .type import Type
@@ -18,10 +17,5 @@ __all__: list[str] = [
     "Organisation",
     "Part",
     "Type",
-    "categories",
     "dump",
-    "licenses",
-    "organisations",
-    "parts",
-    "types",
 ]

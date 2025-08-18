@@ -11,6 +11,7 @@ Includes:
 
 from __future__ import annotations
 
+import inspect
 import logging
 from enum import Enum
 from functools import wraps
@@ -53,14 +54,18 @@ def connected[**Params, Return](
             :class:`NotConnectedError` if the client is not connected.
 
     """
+    signature = inspect.signature(func)
 
     @wraps(func)
     def wrapper(*args: Params.args, **kwargs: Params.kwargs) -> Return:
-        target = kwargs.get("client", args[0])
-        if hasattr(target, "client"):
-            client = cast("Client", getattr(target, "client"))  # noqa: B009
+        client = None
+        bound = signature.bind_partial(*args, **kwargs)
+        if "client" in bound.arguments:
+            client = cast("Client", bound.arguments["client"])
+        elif hasattr(args[0], "client"):
+            client = cast("Client", getattr(args[0], "client"))  # noqa: B009
         else:
-            client = cast("Client", target)
+            client = cast("Client", args[0])
         logger.debug(
             "Verifying client connection for function '%s'. "
             "Identified function's client parameter of type '%s'.",
@@ -95,14 +100,18 @@ def authenticated[**Params, Return](
             :class:`NotAuthenticatedError` if the client is not authenticated.
 
     """
+    signature = inspect.signature(func)
 
     @wraps(func)
     def wrapper(*args: Params.args, **kwargs: Params.kwargs) -> Return:
-        target = kwargs.get("client", args[0])
-        if hasattr(target, "client"):
-            client = cast("Client", getattr(target, "client"))  # noqa: B009
+        client = None
+        bound = signature.bind_partial(*args, **kwargs)
+        if "client" in bound.arguments:
+            client = cast("Client", bound.arguments["client"])
+        elif hasattr(args[0], "client"):
+            client = cast("Client", getattr(args[0], "client"))  # noqa: B009
         else:
-            client = cast("Client", target)
+            client = cast("Client", args[0])
         logger.debug(
             "Verifying client authentication for function '%s'. "
             "Identified function's client parameter of type '%s'.",
@@ -137,14 +146,18 @@ def consented[**Params, Return](
             :class:`NotOptedInError` if the client is not opted in.
 
     """
+    signature = inspect.signature(func)
 
     @wraps(func)
     def wrapper(*args: Params.args, **kwargs: Params.kwargs) -> Return:
-        target = kwargs.get("client", args[0])
-        if hasattr(target, "client"):
-            client = cast("Client", getattr(target, "client"))  # noqa: B009
+        client = None
+        bound = signature.bind_partial(*args, **kwargs)
+        if "client" in bound.arguments:
+            client = cast("Client", bound.arguments["client"])
+        elif hasattr(args[0], "client"):
+            client = cast("Client", getattr(args[0], "client"))  # noqa: B009
         else:
-            client = cast("Client", target)
+            client = cast("Client", args[0])
         logger.debug(
             "Verifying whether client has opted in for function '%s'. "
             "Identified function's client parameter of type '%s'.",

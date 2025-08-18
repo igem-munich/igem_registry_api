@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, Literal
 
 import requests
 from pydantic import UUID4, Field, NonNegativeInt, PrivateAttr
 
 from .calls import _call_paginated
-from .client import Client  # noqa: TC001
-from .part import Part, PartData
+from .client import Client
+from .part import Part
 from .schemas import ArbitraryModel
 from .utils import CleanEnum, authenticated
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from .organisation import Organisation
 
 
@@ -28,8 +30,16 @@ class AccountRoles(CleanEnum):
     USER = "user"
 
 
-class AccountData(ArbitraryModel):
-    """Data model for account information."""
+class Account(ArbitraryModel):
+    """TODO."""
+
+    client: Client = Field(
+        title="Client",
+        description="Registry API client instance.",
+        default=Client(),
+        exclude=True,
+        repr=False,
+    )
 
     uuid: UUID4 = Field(
         title="UUID",
@@ -68,17 +78,6 @@ class AccountData(ArbitraryModel):
         default=None,
     )
 
-
-class Account(AccountData):
-    """TODO."""
-
-    client: Client = Field(
-        title="Client",
-        description="Registry API client instance.",
-        exclude=True,
-        repr=False,
-    )
-
     __username: str | None = PrivateAttr(
         default=None,
     )
@@ -91,35 +90,6 @@ class Account(AccountData):
     def set_username(self, value: str | None) -> None:
         """TODO."""
         object.__setattr__(self, "_Account__username", value)
-
-    @classmethod
-    def from_data(
-        cls: type[Self],
-        client: Client,
-        data: AccountData,
-    ) -> Self:
-        """TODO."""
-        payload = data.model_dump(by_alias=True)
-        return cls.model_validate({**payload, "client": client})
-
-    @authenticated
-    def info(self) -> Self:
-        """Get account information.
-
-        Returns:
-            out (Account): The account information.
-
-        Raises:
-            NotAuthenticatedError: If the client is not authenticated.
-
-        """
-        msg = (
-            "Retrieval of registry account details for entities other than "
-            "the authenticated account user is not supported by the API."
-        )
-        logger.error(msg)
-        raise NotImplementedError(msg)
-        return self
 
     @authenticated
     def affiliations(
@@ -135,6 +105,7 @@ class Account(AccountData):
         ] = "name",
         order: Literal["asc", "desc"] = "asc",
         limit: NonNegativeInt | None = None,
+        progress: Callable | None = None,
     ) -> list[Organisation]:
         """Get account affiliations.
 
@@ -143,18 +114,16 @@ class Account(AccountData):
             order (Literal[str]): The order of sorting, either 'asc' or 'desc'.
             limit (NonNegativeInt | None): The maximum number of organisations
                 to  retrieve.
+            progress (Callable | None): A callback function to report progress.
 
         Returns:
-            out (list[OrganisationData]): Organisations the account belongs to.
+            out (list[Organisation]): Organisations the account belongs to.
 
         Raises:
             NotAuthenticatedError: If the client is not authenticated.
 
         """
-        from .organisation import (  # noqa: PLC0415
-            Organisation,
-            OrganisationData,
-        )
+        from .organisation import Organisation  # noqa: PLC0415
 
         orgs, _ = _call_paginated(
             self.client,
@@ -166,10 +135,13 @@ class Account(AccountData):
                     "order": order.upper(),
                 },
             ),
-            OrganisationData,
+            Organisation,
             limit=limit,
+            progress=progress,
         )
-        return [Organisation.from_data(self.client, org) for org in orgs]
+        for org in orgs:
+            org.client = self.client
+        return orgs
 
     @authenticated
     def parts(
@@ -193,6 +165,7 @@ class Account(AccountData):
         ] = "audit.created",
         order: Literal["asc", "desc"] = "asc",
         limit: NonNegativeInt | None = None,
+        progress: Callable | None = None,
     ) -> list[Part]:
         """Get parts authored by the account user.
 
@@ -201,6 +174,7 @@ class Account(AccountData):
             order (Literal[str]): The order of sorting, either 'asc' or 'desc'.
             limit (NonNegativeInt | None): The maximum number of parts to
                 retrieve.
+            progress (Callable | None): A callback function to report progress.
 
         Returns:
             out (list[PartData]): The parts authored by the account user.
@@ -219,7 +193,10 @@ class Account(AccountData):
                     "order": order.upper(),
                 },
             ),
-            PartData,
+            Part,
             limit=limit,
+            progress=progress,
         )
-        return [Part.from_data(self.client, part) for part in parts]
+        for part in parts:
+            part.client = self.client
+        return parts

@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.pretty import pprint
 
-from igem_registry_api import Client, organisations
+from igem_registry_api import Client, Organisation
 
 
 def authenticate(client: Client) -> None:
@@ -53,7 +53,7 @@ if __name__ == "__main__":
         pprint(members)
 
     # 6. Fetch most recent organizations
-    recent = organisations(
+    recent = Organisation.fetch(
         client,
         limit=5,
         sort="audit.created",

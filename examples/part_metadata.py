@@ -3,7 +3,7 @@
 from rich.console import Console
 from rich.pretty import pprint
 
-from igem_registry_api import Client, categories, licenses, types
+from igem_registry_api import Category, Client, License, Type
 
 
 def main() -> None:
@@ -15,7 +15,7 @@ def main() -> None:
     client.connect()
 
     # 2. Fetch all part types
-    part_types = types(
+    part_types = Type.fetch(
         client,
         sort="label",
         order="desc",
@@ -24,7 +24,7 @@ def main() -> None:
     pprint(part_types)
 
     # 3. Fetch some part categories
-    part_categories = categories(
+    part_categories = Category.fetch(
         client,
         sort="label",
         limit=25,
@@ -33,7 +33,7 @@ def main() -> None:
     pprint(part_categories)
 
     # 4. Fetch all part licenses
-    part_licenses = licenses(
+    part_licenses = License.fetch(
         client,
         sort="description",
     )

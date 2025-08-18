@@ -9,18 +9,20 @@ import requests
 from pydantic import UUID4, Field, HttpUrl, NonNegativeInt
 
 from .calls import _call, _call_paginated
-from .client import Client  # noqa: TC001
+from .client import Client
 from .schemas import ArbitraryModel, AuditLog
-from .utils import CleanEnum, authenticated
+from .utils import CleanEnum, authenticated, connected
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from .account import Account
 
 logger = logging.getLogger(__name__)
 
 
-class OrganisationType(CleanEnum):
-    """Organisation types."""
+class Kind(CleanEnum):
+    """Organisation kind."""
 
     EDUCATION = "education"
     COMPANY = "company"
@@ -30,76 +32,40 @@ class OrganisationType(CleanEnum):
     OTHER = "other"
 
 
-class OrganisationData(ArbitraryModel):
-    """Data model for organization information."""
-
-    uuid: UUID4 = Field(
-        title="UUID",
-        description="The unique identifier for the organisation.",
-    )
-    name: str | None = Field(
-        title="Name",
-        description="The name of the organisation.",
-        default=None,
-    )
-    type: OrganisationType | None = Field(
-        title="Type",
-        description="The type of the organisation.",
-        default=None,
-    )
-    link: HttpUrl | None = Field(
-        title="Link",
-        description="The link to the organisation's website.",
-        default=None,
-    )
-    audit: AuditLog | None = Field(
-        title="Audit",
-        description="Audit information for the organisation.",
-        default=None,
-        exclude=True,
-        repr=False,
-    )
-
-
-class Organisation(OrganisationData):
+class Organisation(ArbitraryModel):
     """TODO."""
 
     client: Client = Field(
         title="Client",
         description="Registry API client instance.",
+        default=Client(),
         exclude=True,
         repr=False,
     )
 
-    @classmethod
-    def from_data(
-        cls: type[Self],
-        client: Client,
-        data: OrganisationData,
-    ) -> Self:
-        """TODO."""
-        payload = data.model_dump(by_alias=True)
-        return cls.model_validate({**payload, "client": client})
-
-    @authenticated
-    def info(self) -> Organisation:
-        """Get account information.
-
-        Returns:
-            out (Account): The account information.
-
-        Raises:
-            NotAuthenticatedError: If the client is not authenticated.
-
-        """
-        return _call(
-            self.client,
-            requests.Request(
-                method="GET",
-                url=f"/organisations/{self.uuid}",
-            ),
-            Organisation,
-        )
+    uuid: UUID4 = Field(
+        title="UUID",
+        description="The unique identifier for the organisation.",
+    )
+    name: str = Field(
+        title="Name",
+        description="The name of the organisation.",
+    )
+    kind: Kind = Field(
+        title="Kind",
+        description="The kind of the organisation.",
+        alias="type",
+    )
+    link: HttpUrl = Field(
+        title="Link",
+        description="The link to the organisation's website.",
+    )
+    audit: AuditLog = Field(
+        title="Audit",
+        description="Audit information for the organisation.",
+        exclude=True,
+        repr=False,
+    )
 
     @authenticated
     def members(
@@ -114,6 +80,7 @@ class Organisation(OrganisationData):
         ] = "firstName",
         order: Literal["asc", "desc"] = "asc",
         limit: NonNegativeInt | None = None,
+        progress: Callable | None = None,
     ) -> list[Account]:
         """Get a list of members in the organisation.
 
@@ -122,6 +89,7 @@ class Organisation(OrganisationData):
             order (Literal[str]): The order of sorting, either 'asc' or 'desc'.
             limit (NonNegativeInt | None): The maximum number of members to
                 retrieve.
+            progress (Callable | None): A callback function to report progress.
 
         Returns:
             out (list[Account]): A list of accounts that are members of the
@@ -131,7 +99,7 @@ class Organisation(OrganisationData):
             NotAuthenticatedError: If the client is not authenticated.
 
         """
-        from .account import Account, AccountData  # noqa: PLC0415
+        from .account import Account  # noqa: PLC0415
 
         users, _ = _call_paginated(
             self.client,
@@ -143,7 +111,61 @@ class Organisation(OrganisationData):
                     "order": order.upper(),
                 },
             ),
-            AccountData,
+            Account,
             limit=limit,
+            progress=progress,
         )
-        return [Account.from_data(self.client, user) for user in users]
+        for user in users:
+            user.client = self.client
+
+        return users
+
+    @classmethod
+    @connected
+    def fetch(
+        cls,
+        client: Client,
+        *,
+        sort: Literal[
+            "uuid",
+            "name",
+            "type",
+            "link",
+            "audit.created",
+            "audit.updated",
+        ] = "name",
+        order: Literal["asc", "desc"] = "asc",
+        limit: NonNegativeInt | None = None,
+        progress: Callable | None = None,
+    ) -> list[Self]:
+        """TODO."""
+        items, _ = _call_paginated(
+            client,
+            requests.Request(
+                method="GET",
+                url=f"{client.base}/organisations",
+                params={
+                    "orderBy": sort,
+                    "order": order.upper(),
+                },
+            ),
+            cls,
+            limit=limit,
+            progress=progress,
+        )
+        for item in items:
+            item.client = client
+        return items
+
+    @classmethod
+    @connected
+    def get(cls, client: Client, uuid: UUID4 | str) -> Self:
+        """TODO."""
+        return _call(
+            client,
+            requests.Request(
+                method="GET",
+                url=f"{client.base}/organisations/{uuid}",
+            ),
+            cls,
+        )

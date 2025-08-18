@@ -10,20 +10,12 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime  # noqa: TC003
-from typing import TYPE_CHECKING, Any
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
 )
-
-if TYPE_CHECKING:
-    from .license import PartLicense
-    from .type import PartType
-else:
-    PartLicense = Any
-    PartType = Any
 
 logger = logging.getLogger(__name__)
 

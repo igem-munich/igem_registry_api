@@ -20,7 +20,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from igem_registry_api import Client, dump, parts
+from igem_registry_api import Client, Part, dump
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -99,7 +99,7 @@ if __name__ == "__main__":
 
     # 3. Fetch parts (main thread)
     try:
-        all_parts = parts(client, limit=None, progress=notify)
+        all_parts = Part.fetch(client, limit=None, progress=notify)
     finally:
         queue.put(None)
         progress.join()

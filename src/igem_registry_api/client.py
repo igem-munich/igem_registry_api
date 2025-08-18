@@ -388,7 +388,7 @@ class Client:
             NotAuthenticatedError: If the client is not authenticated.
 
         """
-        from .account import Account, AccountData  # noqa: PLC0415
+        from .account import Account  # noqa: PLC0415
 
         user = _call(
             self,
@@ -396,10 +396,11 @@ class Client:
                 method="GET",
                 url=f"{self.base}/auth/me",
             ),
-            AccountData,
+            Account,
         )
+        user.client = self
 
-        return Account.from_data(self, user)
+        return user
 
     @authenticated
     def opt_in(self) -> None:
