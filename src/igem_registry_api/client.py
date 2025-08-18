@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Literal, cast
 import requests
 from pydantic import Field, HttpUrl, TypeAdapter
 
-from .calls import _call
+from .calls import call
 from .errors import ClientConnectionError, NotAuthenticatedError
 from .schemas import FrozenModel
 from .utils import CleanEnum, authenticated, connected
@@ -300,7 +300,7 @@ class Client:
             NotConnectedError: If the client is not connected.
 
         """
-        return _call(
+        return call(
             self,
             requests.Request(
                 method="GET",
@@ -328,7 +328,7 @@ class Client:
 
         """
         logger.info("Signing in user %s", username)
-        _call(
+        call(
             self,
             requests.Request(
                 method="POST",
@@ -340,7 +340,7 @@ class Client:
                 },
             ),
         )
-        _call(
+        call(
             self,
             requests.Request(
                 method="GET",
@@ -365,7 +365,7 @@ class Client:
             logger.error(msg)
             raise NotAuthenticatedError(msg)
         logger.info("Signing out user %s", self.user.username)
-        _call(
+        call(
             self,
             requests.Request(
                 method="POST",
@@ -390,7 +390,7 @@ class Client:
         """
         from .account import Account  # noqa: PLC0415
 
-        user = _call(
+        user = call(
             self,
             requests.Request(
                 method="GET",
@@ -418,7 +418,7 @@ class Client:
         if self.user.consent:
             logger.error("User already opted in.")
             return
-        _call(
+        call(
             self,
             requests.Request(
                 method="POST",
@@ -443,7 +443,7 @@ class Client:
         if not self.user.consent:
             logger.error("User already opted out.")
             return
-        _call(
+        call(
             self,
             requests.Request(
                 method="POST",

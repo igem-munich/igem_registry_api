@@ -30,8 +30,8 @@ RETRY_AFTER_HEADERS: tuple[str, ...] = tuple(
 
 
 __all__ = [
-    "_cooldown",
-    "_ratelimit",
+    "cooldown",
+    "ratelimit",
 ]
 
 
@@ -64,7 +64,7 @@ class RateLimit(FrozenModel):
     )
 
 
-def _ratelimit(
+def ratelimit(
     headers: CaseInsensitiveDict,
 ) -> RateLimit:
     """Extract rate limit information from response headers.
@@ -96,7 +96,7 @@ def _ratelimit(
     return RateLimit(**data)
 
 
-def _cooldown(ratelimit: RateLimit) -> NonNegativeInt:
+def cooldown(ratelimit: RateLimit) -> NonNegativeInt:
     """Calculate the cooldown duration based on the rate limit information.
 
     Args:

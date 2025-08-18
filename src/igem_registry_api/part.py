@@ -16,7 +16,7 @@ from pydantic import (
     model_validator,
 )
 
-from .calls import _call, _call_paginated
+from .calls import call, call_paginated
 from .category import Category
 from .client import Client
 from .license import License
@@ -199,7 +199,7 @@ class Part(ArbitraryModel):
         progress: Callable | None = None,
     ) -> list[Self]:
         """TODO."""
-        items, _ = _call_paginated(
+        items, _ = call_paginated(
             client,
             requests.Request(
                 method="GET",
@@ -245,7 +245,7 @@ class Part(ArbitraryModel):
         progress: Callable | None = None,
     ) -> list[Self]:
         """TODO."""
-        items, _ = _call_paginated(
+        items, _ = call_paginated(
             client,
             requests.Request(
                 method="GET",
@@ -268,7 +268,7 @@ class Part(ArbitraryModel):
     @connected
     def get(cls, client: Client, uuid: UUID4 | str) -> Self:
         """TODO."""
-        return _call(
+        return call(
             client,
             requests.Request(
                 method="GET",

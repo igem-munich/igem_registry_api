@@ -33,8 +33,8 @@ from .errors import (
 from .rates import (
     RATE_LIMIT_HEADERS,
     RETRY_AFTER_HEADERS,
-    _cooldown,
-    _ratelimit,
+    cooldown,
+    ratelimit,
 )
 
 if TYPE_CHECKING:
@@ -49,8 +49,8 @@ logger = logging.getLogger(__name__)
 
 
 __all__ = [
-    "_call",
-    "_call_paginated",
+    "call",
+    "call_paginated",
 ]
 
 
@@ -91,7 +91,7 @@ class PaginatedResponse[
 
 
 @overload
-def _call(
+def call(
     client: Client,
     request: Request,
     data: None = None,
@@ -99,14 +99,14 @@ def _call(
 
 
 @overload
-def _call[ResponseObject: BaseModel](
+def call[ResponseObject: BaseModel](
     client: Client,
     request: Request,
     data: type[ResponseObject],
 ) -> ResponseObject: ...
 
 
-def _call(  # noqa: C901, PLR0912, PLR0915
+def call(  # noqa: C901, PLR0912, PLR0915
     client,
     request,
     data=None,
@@ -271,8 +271,8 @@ def _call(  # noqa: C901, PLR0912, PLR0915
     )
 
     if all(header in response.headers for header in RATE_LIMIT_HEADERS):
-        client.ratelimit = _ratelimit(response.headers)
-        client.cooldown = _cooldown(client.ratelimit)
+        client.ratelimit = ratelimit(response.headers)
+        client.cooldown = cooldown(client.ratelimit)
 
     if not status.is_success:
         msg = (
@@ -339,7 +339,7 @@ def _call(  # noqa: C901, PLR0912, PLR0915
         raise ResponseValidationError(msg) from e
 
 
-def _call_paginated[  # noqa: PLR0913
+def call_paginated[  # noqa: PLR0913
     ResponseObject: BaseModel,
     MetadataObject: BaseModel | None,
 ](
@@ -419,7 +419,7 @@ def _call_paginated[  # noqa: PLR0913
     )
 
     while True:
-        response = _call(
+        response = call(
             client,
             request,
             PaginatedResponse[data, meta],

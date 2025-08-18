@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal, Self
 import requests
 from pydantic import UUID4, Field, HttpUrl, NonNegativeInt
 
-from .calls import _call, _call_paginated
+from .calls import call, call_paginated
 from .client import Client
 from .schemas import ArbitraryModel, AuditLog
 from .utils import CleanEnum, authenticated, connected
@@ -101,7 +101,7 @@ class Organisation(ArbitraryModel):
         """
         from .account import Account  # noqa: PLC0415
 
-        users, _ = _call_paginated(
+        users, _ = call_paginated(
             self.client,
             requests.Request(
                 method="GET",
@@ -139,7 +139,7 @@ class Organisation(ArbitraryModel):
         progress: Callable | None = None,
     ) -> list[Self]:
         """TODO."""
-        items, _ = _call_paginated(
+        items, _ = call_paginated(
             client,
             requests.Request(
                 method="GET",
@@ -161,7 +161,7 @@ class Organisation(ArbitraryModel):
     @connected
     def get(cls, client: Client, uuid: UUID4 | str) -> Self:
         """TODO."""
-        return _call(
+        return call(
             client,
             requests.Request(
                 method="GET",

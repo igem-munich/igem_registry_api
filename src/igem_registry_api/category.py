@@ -8,7 +8,7 @@ from uuid import UUID
 import requests
 from pydantic import UUID4, Field, NonNegativeInt, SkipValidation
 
-from .calls import _call, _call_paginated
+from .calls import call, call_paginated
 from .client import Client
 from .schemas import ArbitraryModel
 from .utils import connected
@@ -71,7 +71,7 @@ class Category(ArbitraryModel):
         progress: Callable | None = None,
     ) -> list[Self]:
         """TODO."""
-        items, _ = _call_paginated(
+        items, _ = call_paginated(
             client,
             requests.Request(
                 method="GET",
@@ -93,7 +93,7 @@ class Category(ArbitraryModel):
     @connected
     def get(cls, client: Client, uuid: UUID4 | str) -> Self:
         """TODO."""
-        return _call(
+        return call(
             client,
             requests.Request(
                 method="GET",

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal
 import requests
 from pydantic import UUID4, Field, NonNegativeInt, PrivateAttr
 
-from .calls import _call_paginated
+from .calls import call_paginated
 from .client import Client
 from .part import Part
 from .schemas import ArbitraryModel
@@ -125,7 +125,7 @@ class Account(ArbitraryModel):
         """
         from .organisation import Organisation  # noqa: PLC0415
 
-        orgs, _ = _call_paginated(
+        orgs, _ = call_paginated(
             self.client,
             requests.Request(
                 method="GET",
@@ -183,7 +183,7 @@ class Account(ArbitraryModel):
             NotAuthenticatedError: If the client is not authenticated.
 
         """
-        parts, _ = _call_paginated(
+        parts, _ = call_paginated(
             self.client,
             requests.Request(
                 method="GET",
