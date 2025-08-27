@@ -1,58 +1,197 @@
-"""TODO."""
+"""Part category models and lookups.
+
+This submodule defines the `Category` model used to categorize Registry parts.
+All defined categories are available for fast local lookup as class constants.
+
+Exports:
+    Category: Model representing a part category.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Literal, Self
+import logging
+from typing import TYPE_CHECKING, Annotated, ClassVar
 from uuid import UUID
 
 import requests
-from pydantic import UUID4, Field, NonNegativeInt, SkipValidation
+from pydantic import (
+    UUID4,
+    Field,
+    NonNegativeInt,
+    field_validator,
+)
 
 from .calls import call, call_paginated
-from .client import Client
-from .schemas import ArbitraryModel
+from .errors import InputValidationError, NotFoundError
+from .schemas import LockedModel, Progress
 from .utils import connected
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from typing import Literal, Self
+
+    from .client import Client
 
 
-class Category(ArbitraryModel):
-    """TODO."""
+logger: logging.Logger = logging.getLogger(__name__)
 
-    client: SkipValidation[Client] = Field(
-        title="Client",
-        description="Registry API client instance.",
-        default=Client(),
-        exclude=True,
-        repr=False,
-    )
 
-    uuid: UUID4 = Field(
-        title="UUID",
-        description="The unique identifier for the part category.",
-    )
-    label: str = Field(
-        title="Label",
-        description="The label of the part category.",
-    )
-    value: str | None = Field(
-        title="Value",
-        description="The value of the part category.",
-        default=None,
-    )
-    description: str | None = Field(
-        title="Description",
-        description="A brief description of the part category.",
-        default=None,
-    )
+__all__: list[str] = [
+    "Category",
+]
+
+
+class Category(LockedModel):
+    """Part category.
+
+    Represents a category used to organise Registry parts. Available categories
+    are defined as class constants (e.g. `Category.BIOSAFETY_KILL_SWITCH`)
+    and stored in an in-memory catalog for direct use in code.
+
+    Categories can be resolved locally via `from_uuid()` or `from_id()`, or
+    retrieved remotely through the API using `fetch()` and `get()`.
+
+    Attributes:
+        uuid (str | UUID4): Unique category identifier (version-4 UUID).
+        label (str | None): Label for the category.
+        value (str | None): Registry internal value of the category.
+        description (str | None): Brief description of the category.
+
+    Examples:
+        Access a predefined category:
+
+        ```python
+        from igem_registry_api import Category
+
+        cat = Category.BIOSAFETY_KILL_SWITCH
+        print(cat.uuid, cat.label)
+        ```
+
+        Resolve categories from the in-memory catalog:
+        ```python
+        from igem_registry_api import Category
+
+        cat1 = Category.from_id("//biosafety/kill_switch")
+        cat2 = Category.from_uuid("1f80037e-36a3-42ca-b439-7085bf45e3c9")
+
+        print(cat1 is cat2)
+        ```
+
+        Retrieve categories from the Registry API:
+        ```python
+        from igem_registry_api import Category, Client
+
+        client = Client()
+        client.connect()
+
+        categories = Category.fetch(client, limit=5)
+        print(Category.get(client, categories[0].uuid))
+        ```
+
+    """
+
+    uuid: Annotated[
+        str | UUID4,
+        Field(
+            title="UUID",
+            description="Unique identifier for the part category.",
+        ),
+    ]
+
+    label: Annotated[
+        str | None,
+        Field(
+            title="Label",
+            description="Label of the part category.",
+            pattern=r"^(\/\/)?[a-z0-9_]+(\/[a-z0-9_]+){0,3}$",
+        ),
+    ] = None
+
+    value: Annotated[
+        str | None,
+        Field(
+            title="Value",
+            description="Value of the part category.",
+        ),
+    ] = None
+
+    description: Annotated[
+        str | None,
+        Field(
+            title="Description",
+            description="Brief description of the part category.",
+        ),
+    ] = None
+
+    @field_validator("uuid", mode="after")
+    @classmethod
+    def ensure_uuid(cls, value: str | UUID4) -> UUID4:
+        """Normalize the category UUID to a UUID4 instance.
+
+        Accepts both `str` and `UUID4` objects for usability, while ensuring
+        the stored value is always a `UUID4`. This avoids type checking errors
+        when a `str` input is provided.
+
+        Args:
+            value (str | UUID4): Unique category identifier.
+
+        Returns:
+            out (UUID4): A validated version-4 UUID object.
+
+        Raises:
+            InputValidationError: If the input value is not a valid UUID4.
+
+        """
+        if isinstance(value, str):
+            try:
+                value = UUID(value, version=4)
+            except Exception as e:
+                raise InputValidationError(error=e) from e
+        return value
 
     @classmethod
-    def from_uuid(cls, uuid: str) -> Self:
-        """TODO."""
-        if uuid in cls.REGISTRY:
-            return cls.REGISTRY[uuid]
-        raise ValueError
+    def from_uuid(cls, uuid: str | UUID4) -> Self:
+        """Resolve a category from its UUID.
+
+        Accepts both `str` and `UUID4` objects for usability, normalizes to a
+        v4 UUID string, and looks it up from the in-memory catalog.
+
+        Args:
+            uuid (str | UUID4): Unique category identifier.
+
+        Returns:
+            out (Category): Matching category.
+
+        Raises:
+            NotFoundError: If no category exists for the given UUID.
+
+        """
+        key = str(UUID(uuid, version=4) if isinstance(uuid, str) else uuid)
+        logger.debug("Resolving category by uuid: %s.", key)
+        try:
+            return cls.CATALOG[key]
+        except KeyError as e:
+            raise NotFoundError(item="category", key="uuid", value=key) from e
+
+    @classmethod
+    def from_id(cls, identifier: str) -> Self:
+        """Resolve a category from its label.
+
+        Args:
+            identifier (str): Category label.
+
+        Returns:
+            out (Category): Matching category.
+
+        Raises:
+            NotFoundError: If no category exists for the given label.
+
+        """
+        key = identifier
+        logger.debug("Resolving category by label: %s.", key)
+        try:
+            return cls.CATALOG[key]
+        except KeyError as e:
+            raise NotFoundError(item="category", key="label", value=key) from e
 
     @classmethod
     @connected
@@ -68,9 +207,27 @@ class Category(ArbitraryModel):
         ] = "label",
         order: Literal["asc", "desc"] = "asc",
         limit: NonNegativeInt | None = None,
-        progress: Callable | None = None,
+        progress: Progress | None = None,
     ) -> list[Self]:
-        """TODO."""
+        """List part categories from the Registry.
+
+        Args:
+            client (Client): Registry API client used to perform requests.
+            sort (Literal): Field to sort the categories by.
+            order (Literal): Sorting order, either ascending or descending.
+            limit (NonNegativeInt | None): Maximum number of categories to
+                retrieve. If `None`, fetches all available.
+            progress (Progress | None): Callback function to report progress.
+
+        Returns:
+            out (list[Category]): Part categories.
+
+        Raises:
+            NotConnectedError: If the client is in offline mode.
+
+        """
+        logger.info("Fetching categories.")
+
         items, _ = call_paginated(
             client,
             requests.Request(
@@ -85,15 +242,30 @@ class Category(ArbitraryModel):
             limit=limit,
             progress=progress,
         )
-        for item in items:
-            item.client = client
+
+        logger.info("Fetched %d categories.", len(items))
+
         return items
 
     @classmethod
     @connected
-    def get(cls, client: Client, uuid: UUID4 | str) -> Self:
-        """TODO."""
-        return call(
+    def get(cls, client: Client, uuid: str | UUID4) -> Self:
+        """Retrieve a part category by its UUID.
+
+        Args:
+            client (Client): Registry API client used to perform requests.
+            uuid (str | UUID4): Unique category identifier.
+
+        Returns:
+            out (Category): Requested category.
+
+        Raises:
+            NotConnectedError: If the client is in offline mode.
+
+        """
+        logger.info("Retrieving category: %s.", uuid)
+
+        item = call(
             client,
             requests.Request(
                 method="GET",
@@ -102,7 +274,11 @@ class Category(ArbitraryModel):
             cls,
         )
 
-    REGISTRY: ClassVar[dict[str, Self]]
+        logger.info("Retrieved category: %s.", uuid)
+
+        return item
+
+    CATALOG: ClassVar[dict[str, Self]]
 
     BINDING_CELLULOSE: ClassVar[Self]
     BINDING_METAL: ClassVar[Self]
@@ -1754,9 +1930,9 @@ Category.VIRAL_VECTORS_AAV_VECTOR_PLASMID = Category(
     label="//viral_vectors/aav/vector_plasmid",
 )
 
-Category.REGISTRY = {
-    str(item.uuid): item
-    for item in [
+Category.CATALOG = {
+    str(key): value
+    for value in [
         Category.BINDING_CELLULOSE,
         Category.BINDING_METAL,
         Category.BIOSAFETY,
@@ -2087,4 +2263,5 @@ Category.REGISTRY = {
         Category.VIRAL_VECTORS_AAV_MISCELLANEOUS,
         Category.VIRAL_VECTORS_AAV_VECTOR_PLASMID,
     ]
+    for key in (value.uuid, value.label)
 }

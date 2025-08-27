@@ -1,93 +1,109 @@
-"""Core request execution and error handling utilities.
+"""Core request execution and error handling.
 
-This submodule provides the central request execution logic for the client,
-including unified error handling, retry and backoff strategies, and optional
-response validation against Pydantic models. It forms the foundation for all
-API interactions within the wrapper.
+This submodule provides the central request pipeline for single and paginated
+API calls, including unified error handling, retry and backoff, rate-limit
+awareness, and optional response validation with Pydantic models.
 
-Includes:
-    _call: A function for executing a single HTTP request.
-    _call_paginated: A function for executing paginated HTTP requests.
+Exports:
+    PaginatedResponse: Model representing a paginated API response.
+    call: Executes a single HTTP request with retries and optional parsing.
+    call_paginated: Iterates page-based endpoints and aggregates results.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from http import HTTPStatus
 from time import sleep
-from typing import TYPE_CHECKING, overload
+from typing import TYPE_CHECKING, Annotated, overload
 
-from pydantic import BaseModel, Field, NonNegativeInt, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from .__meta__ import __repository__, __title__, __version__
 from .errors import (
-    ClientError,
     EmptyBodyError,
     HTTPError,
-    RateLimitError,
     ResponseValidationError,
     RetryExhaustedError,
-    ServerError,
     TransportError,
 )
-from .rates import (
-    RATE_LIMIT_HEADERS,
-    RETRY_AFTER_HEADERS,
-    cooldown,
-    ratelimit,
-)
+from .rates import cooldown, ratelimit
+from .schemas import LockedModel, Progress
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
+    from pydantic import NonNegativeInt
     from requests import Request
 
     from .client import Client
 
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
-__all__ = [
+__all__: list[str] = [
+    "PaginatedResponse",
     "call",
     "call_paginated",
 ]
 
 
 class PaginatedResponse[
-    ResponseObject: BaseModel,
-    MetadataObject: BaseModel | None,
+    DataObject: BaseModel,
+    MetaObject: BaseModel | Iterable[BaseModel] | None,
 ](
-    BaseModel,
+    LockedModel,
 ):
-    """Generic model for API responses that return paginated data.
+    """Page-based API response.
 
-    This model wraps a list of response objects together with the current page
-    number, the total number of available objects, and optional metadata
-    provided by the API.
+    Represents a paginated response from the Registry API and includes the
+    data items, total item count, current page number, and optional response
+    metadata.
+
+    Attributes:
+        data (list[DataObject]): Data objects returned in the response.
+        page (int): Current page number.
+        total (int): Total number of objects available.
+        meta (MetaObject | None): Additional metadata about the response.
+
     """
 
-    data: list[ResponseObject] = Field(
-        title="Data",
-        description="A list of data objects returned in the response.",
-        min_length=0,
-        max_length=100,
-    )
-    page: int = Field(
-        title="Page",
-        description="The current page number.",
-        ge=1,
-    )
-    total: int = Field(
-        title="Total",
-        description="The total number of objects available.",
-        ge=0,
-    )
-    metadata: MetadataObject | None = Field(
-        title="Metadata",
-        description="Additional metadata about the response.",
-        default=None,
-    )
+    data: Annotated[
+        list[DataObject],
+        Field(
+            title="Data",
+            description="List of data objects returned in the response.",
+            min_length=0,
+            max_length=100,
+        ),
+    ]
+
+    page: Annotated[
+        int,
+        Field(
+            title="Page",
+            description="Current page number.",
+            ge=1,
+        ),
+    ]
+
+    total: Annotated[
+        int,
+        Field(
+            title="Total",
+            description="Total number of objects available.",
+            ge=0,
+        ),
+    ]
+
+    meta: Annotated[
+        MetaObject | None,
+        Field(
+            title="Metadata",
+            description="Additional metadata about the response.",
+            alias="metadata",
+        ),
+    ] = None
 
 
 @overload
@@ -99,76 +115,80 @@ def call(
 
 
 @overload
-def call[ResponseObject: BaseModel](
+def call[DataObject: BaseModel](
     client: Client,
     request: Request,
-    data: type[ResponseObject],
-) -> ResponseObject: ...
+    data: type[DataObject],
+) -> DataObject: ...
 
 
-def call(  # noqa: C901, PLR0912, PLR0915
+def call(
     client,
     request,
     data=None,
 ):
-    """Perform a single API call.
+    """Execute a single API call.
 
     This function prepares and dispatches a `requests.Request` using the
-    provided `Client` session. It implements retry logic for transient server
-    and rate-limiting errors, updates client-side rate-limit state, and
-    optionally validates the response body against a Pydantic model.
+    provided `Client` session. It implements retry logic, rate-limit awareness,
+    and optional Pydantic model validation of the response body.
 
-    Function behavior:
-    - Ensures that a default `User-Agent` header is present, based on the
-        library's metadata, unless explicitly set by the caller.
-    - Prepares and sends the request using the client's configured
-        `requests.Session`.
-    - Applies a pre-request cooldown delay (`client.cooldown`) before
-        sending each attempt, based on the current rate limit.
-    - Retries the request (`client.retries` times) in the following cases:
-        - 5xx server errors: exponential backoff is applied, doubling
-            `client.cooldown` up to a maximum of 60 seconds.
-        - 429 Too Many Requests: `client.cooldown` is set from
-            `Retry-After` headers when available, or defaults to a fallback
-            value.
+    Behavior:
+    - Ensures a default `User-Agent` based on the library's metadata.
+    - Prepares the HTTP request from `requests.Request`.
+    - Applies a pre-request cooldown delay (`client.cooldown`).
+    - Sends the request using the `Client`'s configured `requests.Session`.
+    - Retries the request (`client.retries` times) on HTTP 429 (rate limit).
     - Updates the client's rate-limit state (`client.ratelimit`) and
-        recalculates `client.cooldown` for the following call if the response
-        contains headers defined in `RATE_LIMIT_HEADERS`.
-    - Treats any non-successful HTTP status (outside the 2xx range) as an
-        error and raises an appropriate exception.
+        recalculates `client.cooldown` for the following call.
     - If `data` is provided, attempts to parse and validate the response
         body into an instance of the specified Pydantic model.
     - If `data` is omitted or `client.stream` is enabled, the function
         does not parse the body and instead returns `None`.
 
     Args:
-        client (Client): The `Client` instance that holds the HTTP session,
+        client (Client): Registry API client that holds the HTTP session,
             retry configuration, and rate-limit state.
-        request (Request): A `requests.Request` object defining the HTTP
-            request to send.
-        data (type[ResponseObject] | None): Optional Pydantic model of the
-            response body. When provided, function returns a validated
-            instance of this model. If omitted, the function returns `None`.
+        request (Request): HTTP request definition.
+        data (type[DataObject] | None): Model of the response body. When
+            provided, function returns a validated instance of this model.
+            If omitted, the function returns `None`.
 
     Returns:
-        out (type[ResponseObject] | None): None if no schema is provided or
-        streaming is enabled. Otherwise, an instance of the specified Pydantic
-        model containing the validated response data.
+        out (type[DataObject] | None): `None` if no data model is provided or
+        streaming is enabled. Otherwise, an instance of the specified model
+        containing the validated response data.
 
     Raises:
         TransportError: If a network or transport-level failure occurs before
             an HTTP response is received.
         RetryExhaustedError: If the request fails after exhausting all retry
             attempts.
-        RateLimitError: If the server responds with HTTP 429 Too Many Requests.
-        ClientError: For other 4xx client-side HTTP errors.
-        ServerError: For 5xx server-side HTTP errors not recovered through
-            retries.
-        HTTPError: For any other unexpected non-success HTTP status.
+        HTTPError: If the server responds with an unexpected non-success HTTP
+            status.
         EmptyBodyError: If a response is received without content when a body
             is required for validation.
         ResponseValidationError: If the response body cannot be parsed or fails
-            validation against the specified Pydantic model.
+            validation against the specified model.
+
+    Example:
+        Check the health status of a Registry instance.
+
+        ```python
+        import requests
+
+        from igem_registry_api import Client, HealthCheck, call
+
+        client = Client()
+        client.connect()
+
+        request = requests.Request(
+            method="GET",
+            url=f"{client.base}/health",
+        )
+
+        health = call(client, request, HealthCheck)
+        ```
 
     """
     request.headers.setdefault(
@@ -176,15 +196,7 @@ def call(  # noqa: C901, PLR0912, PLR0915
         f"{__title__}/{__version__} (+{__repository__})",
     )
 
-    for attempt in range(client.retries):
-        if attempt > 0:
-            logger.warning(
-                "Retrying '%s' request to '%s', attempt %s.",
-                request.method,
-                request.url,
-                attempt,
-            )
-
+    for attempt in range(max(1, client.retries)):
         prepared = client.session.prepare_request(request)
         logger.debug(
             "Prepared '%s' request to '%s' with headers: '%s', body: '%s'.",
@@ -201,7 +213,7 @@ def call(  # noqa: C901, PLR0912, PLR0915
                 prepared.url,
                 client.cooldown,
             )
-        sleep(client.cooldown or 0)
+            sleep(client.cooldown)
 
         try:
             response = client.session.send(
@@ -214,198 +226,169 @@ def call(  # noqa: C901, PLR0912, PLR0915
                 allow_redirects=client.redirects,
             )
         except Exception as e:
-            msg = (
-                f"Transport error occurred during '{prepared.method}' "
-                f"request to '{prepared.url}': {e}"
-            )
-            logger.error(msg)  # noqa: TRY400
-            raise TransportError(msg) from e
+            raise TransportError(prepared.method, prepared.url, e) from e
 
         status = HTTPStatus(response.status_code)
+        details = {
+            "method": prepared.method,
+            "url": prepared.url,
+            "status": response.status_code,
+            "reason": response.reason,
+        }
 
-        if status.is_server_error:
-            client.cooldown = min((client.cooldown or 1) * 2, 60)
-            logger.warning(
-                "Server error for '%s' request to '%s': %s, %s. "
-                "Retrying in %s seconds.",
-                prepared.method,
-                prepared.url,
-                response.status_code,
-                response.reason,
-                client.cooldown,
+        if status.is_success:
+            logger.debug(
+                "Response for '%s' request to '%s': %s, %s. "
+                "Response headers: %s",
+                *details.values(),
+                response.headers,
             )
-            continue
+            client.ratelimit = ratelimit(response.headers)
+            client.cooldown = cooldown(client.ratelimit)
+            break
 
         if status == HTTPStatus.TOO_MANY_REQUESTS:
-            client.cooldown = max(
-                int(response.headers.get(header, 1))
-                for header in RETRY_AFTER_HEADERS
-            )
             logger.warning(
                 "Rate limit exceeded for '%s' request to '%s': %s, %s. "
-                "Retrying in %s seconds.",
-                prepared.method,
-                prepared.url,
-                response.status_code,
-                response.reason,
-                client.cooldown,
+                "Retrying request (attempt %s of %s).",
+                *details.values(),
+                attempt + 1,
+                client.retries,
             )
+            client.ratelimit = ratelimit(response.headers)
+            client.cooldown = cooldown(client.ratelimit)
             continue
 
-        break
+        raise HTTPError(**details)
+
     else:
-        msg = (
-            f"Retries exhausted for '{request.method}' request "
-            f"to '{request.url}': {client.retries} retries."
-        )
-        logger.error(msg)
-        raise RetryExhaustedError(msg)
-
-    logger.debug(
-        "Response for '%s' request to '%s': %s, %s. Response headers: %s",
-        prepared.method,
-        prepared.url,
-        response.status_code,
-        response.reason,
-        response.headers,
-    )
-
-    if all(header in response.headers for header in RATE_LIMIT_HEADERS):
-        client.ratelimit = ratelimit(response.headers)
-        client.cooldown = cooldown(client.ratelimit)
-
-    if not status.is_success:
-        msg = (
-            f"'{request.method}' request to '{request.url}' "
-            f"failed with: {response.status_code}, {response.reason}."
-        )
-        logger.error(msg)
-        match status:
-            case HTTPStatus.TOO_MANY_REQUESTS:
-                raise RateLimitError(
-                    response.status_code,
-                    response.reason,
-                    response.request.method,
-                    response.request.url,
-                )
-            case status.is_client_error:
-                raise ClientError(
-                    response.status_code,
-                    response.reason,
-                    response.request.method,
-                    response.request.url,
-                )
-            case status.is_server_error:
-                raise ServerError(
-                    response.status_code,
-                    response.reason,
-                    response.request.method,
-                    response.request.url,
-                )
-            case _:
-                raise HTTPError(
-                    response.status_code,
-                    response.reason,
-                    response.request.method,
-                    response.request.url,
-                )
+        raise RetryExhaustedError(request.method, request.url, client.retries)
 
     if data is None or client.stream:
         return None
 
     if not response.content:
-        msg = (
-            f"Empty response content for '{request.method}' request to "
-            f"'{request.url}': {response.status_code}, {response.reason}."
-        )
-        logger.error(msg)
-        raise EmptyBodyError(msg)
+        raise EmptyBodyError(**details)
 
     try:
         logger.debug(
-            "Response content for '%s' request to '%s': %s",
+            "Response content for '%s' request to '%s': %s.",
             request.method,
             request.url,
-            response.content[:500],
+            response.content[:1000].decode(errors="ignore"),
         )
         return data.model_validate_json(response.content)
     except ValidationError as e:
-        msg = (
-            f"Failed to parse response content for '{request.method}' "
-            f"request to '{request.url}': {response.content[:500]}. "
-            f"Error: {e}."
-        )
-        logger.error(msg)  # noqa: TRY400
-        raise ResponseValidationError(msg) from e
+        raise ResponseValidationError(
+            request.method,
+            request.url,
+            response.content[:1000].decode(errors="ignore"),
+            e,
+        ) from e
 
 
-def call_paginated[  # noqa: PLR0913
-    ResponseObject: BaseModel,
-    MetadataObject: BaseModel | None,
+@overload
+def call_paginated[
+    DataObject: BaseModel,
+    MetaObject: BaseModel | Iterable[BaseModel],
 ](
     client: Client,
     request: Request,
-    data: type[ResponseObject],
-    meta: type[MetadataObject] | None = None,
+    data: type[DataObject],
+    meta: type[MetaObject],
     *,
     limit: NonNegativeInt | None = None,
-    progress: Callable | None = None,
-) -> tuple[list[ResponseObject], MetadataObject | None]:
+    progress: Progress | None = None,
+) -> tuple[list[DataObject], MetaObject]: ...
+
+
+@overload
+def call_paginated[
+    DataObject: BaseModel,
+](
+    client: Client,
+    request: Request,
+    data: type[DataObject],
+    meta: None = None,
+    *,
+    limit: NonNegativeInt | None = None,
+    progress: Progress | None = None,
+) -> tuple[list[DataObject], None]: ...
+
+
+def call_paginated(
+    client,
+    request,
+    data,
+    meta=None,
+    *,
+    limit=None,
+    progress=None,
+):
     """Perform a paginated API call.
 
-    This function repeatedly invokes `_call` to fetch multiple pages of results
-    from an endpoint that uses page-based data retrieval. It aggregates all
-    items across pages into a single list and optionally returns the response
-    metadata associated with the paginated data.
+    This function repeatedly invokes `call()` to fetch successive pages,
+    aggregating received items into a single list. Optionally returns typed
+    response metadata and reports progress.
 
-    Function behavior:
-    - Initializes the request with default pagination parameters:
-        first page `"page" = 1` and the maximum page size `"pageSize" = 100`.
-    - Calls `_call` iteratively with `PaginatedResponse[data, meta]` until
-        an empty page is returned, indicating the end of available data.
-    - Accumulates all `data` objects across pages into a result list.
-    - Returns response `metadata` from the last page if a metadata schema
-        is provided.
+    Behavior:
+    - Initializes pagination with `page=1` and `pageSize=100` (maximum size).
+    - Calls `call()` with `PaginatedResponse[data, meta]` until the total or
+        desired (`limit`) item count is reached or an empty page is received.
+    - Invokes `progress(current, total)` to report progress when provided.
+    - Accumulates and returns all `data` items across pages.
+    - Returns response `meta` from the last page if its model is provided.
+
 
     Args:
-        client (Client): The `Client` instance that holds the HTTP session,
+        client (Client): Registry API client that holds the HTTP session,
             retry configuration, and rate-limit state.
-        request (Request): A `requests.Request` object defining the HTTP
-            request to send.
-        data (type[ResponseObject] | None): Pydantic model of the
-            response body used for its validation.
-        meta (type[ResponseObject] | None): Optional Pydantic model of the
-            response metadata. When provided, function returns a validated
-            instance of this model. If omitted, the function returns `None`.
-        limit (NonNegativeInt | None): Optional maximum number of items to
-            retrieve. If provided, pagination stops when this limit is reached.
-        progress (Callable | None): Optional callback function to report
-            progress updates during pagination. It receives two arguments:
-            - `current`: The current number of items retrieved.
-            - `total`: The total number of items to retrieve.
+        request (Request): HTTP request definition.
+        data (type[DataObject] | None): Model of the response data.
+        meta (type[MetaObject] | None): Model of the response metadata. When
+            provided, function returns a validated instance of this model.
+            If omitted, the function returns `None`.
+        limit (NonNegativeInt | None): Cap on total items to fetch. If `None`,
+            fetches all available.
+        progress (Progress | None): Callback function to report progress.
 
     Returns:
-        out (tuple[list[ResponseObject], MetadataObject | None]): A tuple
-            containing a list of items retrieved across all pages and
-            optionally the associated response metadata.
+        out (tuple[list[DataObject], MetaObject | None]): A tuple containing
+            aggregated data items and, if applicable, the associated metadata.
 
     Raises:
         TransportError: If a network or transport-level failure occurs before
             an HTTP response is received.
-        RetryExhaustedError: If a request fails after exhausting all retry
+        RetryExhaustedError: If the request fails after exhausting all retry
             attempts.
-        RateLimitError: If the server responds with HTTP 429 Too Many Requests.
-        ClientError: For other 4xx client-side HTTP errors.
-        ServerError: For 5xx server-side HTTP errors not recovered through
-            retries.
-        HTTPError: For any other unexpected non-success HTTP status.
+        HTTPError: If the server responds with an unexpected non-success HTTP
+            status.
         EmptyBodyError: If a response is received without content when a body
             is required for validation.
         ResponseValidationError: If the response body cannot be parsed or fails
-            validation against the specified Pydantic model.
+            validation against the specified model.
+
+    Example:
+        Fetch all licenses available in the Registry.
+
+        ```python
+        import requests
+
+        from igem_registry_api import Client, License, call_paginated
+
+        client = Client()
+        client.connect()
+
+        request = requests.Request(
+            method="GET",
+            url=f"{client.base}/licenses",
+        )
+
+        licenses, _ = call_paginated(client, request, License)
+        ```
 
     """
-    results: list[ResponseObject] = []
+    results: list = []
 
     if request.params is None:
         request.params = {}
@@ -433,7 +416,11 @@ def call_paginated[  # noqa: PLR0913
             len(response.data),
         )
 
-        if len(response.data) == 0:
+        results.extend(response.data)
+        if progress:
+            progress(current=len(results), total=limit or response.total)
+
+        if len(response.data) == 0 or len(results) >= response.total:
             logger.debug(
                 "No more items for '%s' request to '%s' at page %s, "
                 "stopping pagination.",
@@ -442,13 +429,6 @@ def call_paginated[  # noqa: PLR0913
                 request.params["page"],
             )
             break
-
-        results.extend(response.data)
-        if progress:
-            progress(
-                current=len(results),
-                total=min(limit or float("inf"), response.total),
-            )
 
         if limit is not None and len(results) >= limit:
             logger.debug(
@@ -461,14 +441,6 @@ def call_paginated[  # noqa: PLR0913
             break
 
         request.params["page"] += 1
-        logger.debug(
-            "Cumulative items for '%s' request to '%s': %s. "
-            "Moving to next page: %s.",
-            request.method,
-            request.url,
-            len(results),
-            request.params["page"],
-        )
 
     logger.debug(
         "Final cumulative items: %s.",
@@ -480,7 +452,10 @@ def call_paginated[  # noqa: PLR0913
             "Metadata of the paginated response for '%s' request to '%s': %s",
             request.method,
             request.url,
-            response.metadata,
+            response.meta,
         )
 
-    return results[:limit] if limit is not None else results, response.metadata
+    return (
+        results[:limit] if limit is not None else results,
+        response.meta if meta is not None else None,
+    )

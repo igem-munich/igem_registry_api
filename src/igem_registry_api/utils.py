@@ -1,18 +1,18 @@
-"""General utility functions for the API client.
+"""General utility functions.
 
-This module provides various utility functions and decorators for the API
-client, including connection and authentication checks.
+This submodule provides various utility functions and decorators used
+throughout the package.
 
 Includes:
     connected: Decorator to require a connected client.
-    authenticated: Decorator to require an authenticated client.
-    consented: Decorator to require a opted in client.
+    authenticated: Decorator to require an authenticated account.
+    consented: Decorator to require an opted-in account.
+    dump: Serialize a Pydantic model for storage or transmission.
 """
 
 from __future__ import annotations
 
 import logging
-from enum import Enum
 from functools import wraps
 from typing import (
     TYPE_CHECKING,
@@ -23,7 +23,12 @@ from typing import (
 import pydantic_core
 from pydantic import BaseModel
 
-from .errors import NotAuthenticatedError, NotConnectedError, NotOptedInError
+from .errors import (
+    ClientMissingError,
+    NotAuthenticatedError,
+    NotConnectedError,
+    NotOptedInError,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -31,22 +36,47 @@ if TYPE_CHECKING:
     from .client import Client
 
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
+
+
+__all__: list[str] = [
+    "authenticated",
+    "connected",
+    "consented",
+    "dump",
+]
+
+
+def extract_client(*args: Any, **kwargs: Any) -> Client:
+    """Extract the client instance from positional or keyword arguments.
+
+    Assumes the first argument with client-like attributes or an explicit
+    'client' keyword argument. Raises AttributeError if no candidate found.
+    """
+    for arg in args:
+        if (
+            hasattr(arg, "is_none")
+            and hasattr(arg, "is_auth")
+            and hasattr(arg, "is_opted_in")
+        ):
+            return cast("Client", arg)
+    if "client" in kwargs:
+        return cast("Client", kwargs["client"])
+    if hasattr(args[0], "client"):
+        return cast("Client", getattr(args[0], "client"))
+    raise ClientMissingError(message="Client not found in arguments.")
 
 
 def connected[**Params, Return](
     func: Callable[Params, Return],
 ) -> Callable[Params, Return]:
-    """Require that the given client is connected.
+    """Require client connection.
 
-    The decorated function must take a `client` argument as its first
-    positional parameter or as a keyword argument. The decorator inspects
-    that client object and raises a :class:`NotConnectedError` if it is in
-    a disconnected state (`client.is_none` is True).
+    Inspects `Client` object and raises a :class:`NotConnectedError` if it is
+    not connected (`client.is_none` is `True`).
 
     Args:
-        func (Callable[Params, Return]): The function to decorate. It must
-            accept a `client` parameter as its first argument or via keyword.
+        func (Callable[Params, Return]): The function to decorate.
 
     Returns:
         out (Callable[Params, Return]): The wrapped function, which will raise
@@ -56,18 +86,7 @@ def connected[**Params, Return](
 
     @wraps(func)
     def wrapper(*args: Params.args, **kwargs: Params.kwargs) -> Return:
-        for arg in args:
-            if hasattr(arg, "is_none"):
-                client = cast("Client", arg)
-                break
-        else:
-            client = cast(
-                "Client",
-                kwargs.get(
-                    "client",
-                    getattr(args[0], "client"),  # noqa: B009
-                ),
-            )
+        client = extract_client(*args, **kwargs)
         logger.debug(
             "Verifying client connection for function '%s'. "
             "Identified function's client parameter of type '%s'.",
@@ -86,39 +105,25 @@ def connected[**Params, Return](
 def authenticated[**Params, Return](
     func: Callable[Params, Return],
 ) -> Callable[Params, Return]:
-    """Require that the given client is authenticated.
+    """Require account authentication.
 
-    The decorated function must take a `client` argument as its first
-    positional parameter or as a keyword argument. The decorator inspects
-    that client object and raises a :class:`NotAuthenticatedError` if it
-    is not authenticated (`client.is_auth` is False).
+    Inspects `Client` object and raises a :class:`NotAuthenticatedError` if the
+    underlying user account is not authenticated (`client.is_auth` is False).
 
     Args:
-        func (Callable[Params, Return]): The function to decorate. It must
-            accept a `client` parameter as its first argument or via keyword.
+        func (Callable[Params, Return]): The function to decorate.
 
     Returns:
         out (Callable[Params, Return]): The wrapped function, which will raise
-            :class:`NotAuthenticatedError` if the client is not authenticated.
+            :class:`NotAuthenticatedError` if the account is not authenticated.
 
     """
 
     @wraps(func)
     def wrapper(*args: Params.args, **kwargs: Params.kwargs) -> Return:
-        for arg in args:
-            if hasattr(arg, "is_auth"):
-                client = cast("Client", arg)
-                break
-        else:
-            client = cast(
-                "Client",
-                kwargs.get(
-                    "client",
-                    getattr(args[0], "client"),  # noqa: B009
-                ),
-            )
+        client = extract_client(*args, **kwargs)
         logger.debug(
-            "Verifying client authentication for function '%s'. "
+            "Verifying account authentication for function '%s'. "
             "Identified function's client parameter of type '%s'.",
             func.__name__,
             type(client),
@@ -135,39 +140,25 @@ def authenticated[**Params, Return](
 def consented[**Params, Return](
     func: Callable[Params, Return],
 ) -> Callable[Params, Return]:
-    """Require that the given client has opted in to be a contributor.
+    """Require account opt-in.
 
-    The decorated function must take a `client` argument as its first
-    positional parameter or as a keyword argument. The decorator inspects
-    that client object and raises a :class:`NotOptedInError` if it
-    is not opted in (`client.is_opted_in` is False).
+    Inspects `Client` object and raises a :class:`NotOptedInError` if the
+    underlying user account is not opted in (`client.is_opted_in` is False).
 
     Args:
-        func (Callable[Params, Return]): The function to decorate. It must
-            accept a `client` parameter as its first argument or via keyword.
+        func (Callable[Params, Return]): The function to decorate.
 
     Returns:
         out (Callable[Params, Return]): The wrapped function, which will raise
-            :class:`NotOptedInError` if the client is not opted in.
+            :class:`NotOptedInError` if the account is not opted in.
 
     """
 
     @wraps(func)
     def wrapper(*args: Params.args, **kwargs: Params.kwargs) -> Return:
-        for arg in args:
-            if hasattr(arg, "is_opted_in"):
-                client = cast("Client", arg)
-                break
-        else:
-            client = cast(
-                "Client",
-                kwargs.get(
-                    "client",
-                    getattr(args[0], "client"),  # noqa: B009
-                ),
-            )
+        client = extract_client(*args, **kwargs)
         logger.debug(
-            "Verifying whether client has opted in for function '%s'. "
+            "Verifying whether account has opted in for function '%s'. "
             "Identified function's client parameter of type '%s'.",
             func.__name__,
             type(client),
@@ -181,23 +172,11 @@ def consented[**Params, Return](
     return wrapper
 
 
-class CleanEnum(Enum):
-    """Base enum with clean representation."""
-
-    def __repr__(self) -> str:
-        """Return a string representation of the enum member."""
-        return f"{self.__class__.__name__}.{self.name}"
-
-    def __str__(self) -> str:
-        """Return the string value of the enum member."""
-        return self.name
-
-
 def dump(**kwargs: Any) -> Callable:
-    """TODO."""
+    """Serialize a Pydantic model for storage or transmission."""
 
     def base_encoder(obj: object) -> dict:
-        """TODO."""
+        """Encode models and objects for serialization."""
         if isinstance(obj, BaseModel):
             return obj.model_dump(**kwargs)
         return pydantic_core.to_jsonable_python(obj)
