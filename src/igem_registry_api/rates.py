@@ -1,67 +1,94 @@
-"""Utilities for handling API rate limits.
+"""API rate limit utilities.
 
-Includes:
-    _ratelimit: A function to extract rate limit information from headers.
-    _cooldown: A function to calculate cooldown duration based on rate limits.
+This submodule provides helpers to read per-window rate-limits from HTTP
+response headers and to compute a suitable cooldown period when limits have
+been reached.
+
+Exports:
+    RateLimit: Model representing rate-limit information.
+    ratelimit: Parses rate-limit information from response headers.
+    cooldown: Computes a wait (seconds) based on current limits.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated, cast
 
 from pydantic import Field, NonNegativeInt
 
-from .schemas import FrozenModel
+from .schemas import LockedModel
 
 if TYPE_CHECKING:
     from requests.structures import CaseInsensitiveDict
 
+
 WINDOWS: tuple[str, str, str] = ("short", "medium", "large")
 METRICS: tuple[str, str, str] = ("remaining", "reset", "limit")
 
-RATE_LIMIT_HEADERS: tuple[str, ...] = tuple(
-    f"x-ratelimit-{metric}-{window}"
+RATE_LIMIT_HEADERS: tuple[tuple[str, ...], ...] = tuple(
+    tuple(f"x-ratelimit-{metric}-{window}" for window in WINDOWS)
     for metric in METRICS
-    for window in WINDOWS
 )
 RETRY_AFTER_HEADERS: tuple[str, ...] = tuple(
     f"retry-after-{window}" for window in WINDOWS
 )
 
 
-__all__ = [
+__all__: list[str] = [
+    "RateLimit",
     "cooldown",
     "ratelimit",
 ]
 
 
-class RateLimit(FrozenModel):
-    """Rate limit information model for API requests."""
+WindowTriple = tuple[NonNegativeInt, NonNegativeInt, NonNegativeInt]
 
-    balance: tuple[NonNegativeInt, NonNegativeInt, NonNegativeInt] = Field(
-        title="Balance",
-        description=(
-            "Remaining requests for short, medium, and large call windows"
+
+class RateLimit(LockedModel):
+    """Rate limit information.
+
+    Represents the rate limits imposed by the API for different call windows.
+
+    Attributes:
+        balance (WindowTriple): Remaining requests for short, medium, and large
+            call windows.
+        reset (WindowTriple): Reset times (in seconds) for short, medium, and
+            large call windows.
+        quota (WindowTriple): Request limits for short, medium, and large call
+            windows.
+
+    """
+
+    balance: Annotated[
+        WindowTriple,
+        Field(
+            title="Balance",
+            description=(
+                "Remaining requests for short, medium, and large call windows."
+            ),
+            alias="remaining",
         ),
-        default=(0, 0, 0),
-        alias="remaining",
-    )
-    reset: tuple[NonNegativeInt, NonNegativeInt, NonNegativeInt] = Field(
-        title="Reset",
-        description=(
-            "Reset times (seconds) for short, medium, and large call windows"
+    ] = (0, 0, 0)
+    reset: Annotated[
+        WindowTriple,
+        Field(
+            title="Reset",
+            description=(
+                "Reset times for short, medium, and large call windows."
+            ),
+            alias="reset",
         ),
-        default=(5, 60, 600),
-        alias="reset",
-    )
-    quota: tuple[NonNegativeInt, NonNegativeInt, NonNegativeInt] = Field(
-        title="Quota",
-        description=(
-            "Request limits for short, medium, and large call windows"
+    ] = (5, 60, 600)
+    quota: Annotated[
+        WindowTriple,
+        Field(
+            title="Quota",
+            description=(
+                "Request limits for short, medium, and large call windows."
+            ),
+            alias="limit",
         ),
-        default=(5, 60, 200),
-        alias="limit",
-    )
+    ] = (5, 60, 200)
 
 
 def ratelimit(
@@ -74,24 +101,22 @@ def ratelimit(
             extract rate limit information.
 
     Returns:
-        out (RateLimit): Extracted rate limit information, including total
-            request limits, remaining requests, and reset times for the short,
-            medium, and large API call windows.
+        out (RateLimit): Extracted rate limit information.
 
     """
-    data: dict[str, tuple[int, int, int]] = {}
+    data = {}
 
-    for metric in METRICS:
-        values = (
-            int(headers.get(f"x-ratelimit-{metric}-short", -1)),
-            int(headers.get(f"x-ratelimit-{metric}-medium", -1)),
-            int(headers.get(f"x-ratelimit-{metric}-large", -1)),
+    if all(header in headers for lot in RATE_LIMIT_HEADERS for header in lot):
+        for metric, lot in zip(METRICS, RATE_LIMIT_HEADERS, strict=True):
+            data[metric] = tuple(int(headers.get(header, 1)) for header in lot)
+    elif any(header in headers for header in RETRY_AFTER_HEADERS):
+        data["reset"] = tuple(
+            int(headers.get(header, 1)) for header in RETRY_AFTER_HEADERS
         )
+    else:
+        data["reset"] = (1, 1, 1)
 
-        if -1 in values:
-            continue
-
-        data[metric] = values
+    data = cast("dict[str, WindowTriple]", data)
 
     return RateLimit(**data)
 

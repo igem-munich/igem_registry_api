@@ -2,6 +2,16 @@
 
 from importlib.metadata import PackageMetadata, metadata, version
 
+__all__: list[str] = [
+    "__documentation__",
+    "__issues__",
+    "__module__",
+    "__name__",
+    "__package__",
+    "__repository__",
+    "__version__",
+]
+
 __title__: str = "iGEM Registry API"
 
 __package__: str = "iGEM Registry API".lower().replace(" ", "_")
@@ -18,14 +28,3 @@ for item in __metadata__.json["project_url"]:
             __documentation__: str = item.split(", ", 1)[1]
         case _ if item.startswith("Issues"):
             __issues__: str = item.split(", ", 1)[1]
-
-
-__all__: list[str] = [
-    "__documentation__",
-    "__issues__",
-    "__module__",
-    "__name__",
-    "__package__",
-    "__repository__",
-    "__version__",
-]

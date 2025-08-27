@@ -1,28 +1,66 @@
-"""TODO."""
+"""Organisation models and operations.
+
+This submodule defines classes related to Registry organisations. It provides
+the `Organisation` model for representing and interacting with an organisation,
+and the `Kind` enum for organisation types.
+
+Exports:
+    Organisation: Model representing a Registry organisation.
+    Kind: Enum of organisation types.
+"""
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, Annotated
+from uuid import UUID
 
 import requests
-from pydantic import UUID4, Field, HttpUrl, NonNegativeInt
+from pydantic import (
+    UUID4,
+    Field,
+    HttpUrl,
+    NonNegativeInt,
+    SkipValidation,
+    field_validator,
+)
+
+from igem_registry_api.errors import InputValidationError
 
 from .calls import call, call_paginated
 from .client import Client
-from .schemas import ArbitraryModel, AuditLog
-from .utils import CleanEnum, authenticated, connected
+from .schemas import AuditLog, CleanEnum, DynamicModel, Progress
+from .utils import authenticated, connected
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from typing import Literal, Self
 
     from .account import Account
 
-logger = logging.getLogger(__name__)
+
+logger: logging.Logger = logging.getLogger(__name__)
+
+
+__all__: list[str] = [
+    "Kind",
+    "Organisation",
+]
 
 
 class Kind(CleanEnum):
-    """Organisation kind."""
+    """Kinds of organisations.
+
+    Defines the different types of organisations within the Registry API.
+
+    Attributes:
+        EDUCATION: Educational institutions.
+        COMPANY: For-profit companies.
+        NON_PROFIT: Non-profit organisations.
+        GOVERNMENT: Government agencies.
+        IGEM_TEAM: iGEM teams.
+        OTHER: Other types of organisations.
+
+    """
 
     EDUCATION = "education"
     COMPANY = "company"
@@ -32,40 +70,140 @@ class Kind(CleanEnum):
     OTHER = "other"
 
 
-class Organisation(ArbitraryModel):
-    """TODO."""
+class Organisation(DynamicModel):
+    """Registry organisation.
 
-    client: Client = Field(
-        title="Client",
-        description="Registry API client instance.",
-        default=Client(),
-        exclude=True,
-        repr=False,
-    )
+    Represents an organisation in the iGEM Registry. An `Organisation` stores
+    basic information about the organisation, and when paired with an
+    authenticated `Client`, can retrieve member accounts (`members()`).
+    Organisations can also be retrieved with a connected `Client` in bulk via
+    `fetch()` or individually using their UUID via `get()` methods.
 
-    uuid: UUID4 = Field(
-        title="UUID",
-        description="The unique identifier for the organisation.",
-    )
-    name: str = Field(
-        title="Name",
-        description="The name of the organisation.",
-    )
-    kind: Kind = Field(
-        title="Kind",
-        description="The kind of the organisation.",
-        alias="type",
-    )
-    link: HttpUrl = Field(
-        title="Link",
-        description="The link to the organisation's website.",
-    )
-    audit: AuditLog = Field(
-        title="Audit",
-        description="Audit information for the organisation.",
-        exclude=True,
-        repr=False,
-    )
+    Attributes:
+        client (Client): Registry API client used to perform requests.
+        uuid (str | UUID4): Unique organisation identifier (version-4 UUID).
+        name (str | None): Name of the organisation.
+        kind (Kind | None): Kind of the organisation.
+        link (HttpUrl | None): Website URL of the organisation.
+        audit (AuditLog | None): Audit information for the organisation.
+
+    Examples:
+        Create an `Organisation` instance and fetch member `Accounts`:
+
+        ```python
+        from igem_registry_api import Client, Organisation
+
+        client = Client()
+        client.connect()
+        client.sign_in("username", "password")
+
+        org = Organisation(
+            client=client,
+            uuid="11111111-2222-3333-4444-555555555555",
+        )
+
+        accounts = org.members(order="desc")
+        ```
+
+        Retrieve organisations in bulk or individually:
+
+        ```python
+        from igem_registry_api import Client, Organisation
+
+        client = Client()
+        client.connect()
+        client.sign_in("username", "password")
+
+        organisations = Organisation.fetch(client, limit=5)
+        print(Organisation.get(client, organisations[0].uuid))
+        ```
+
+    """
+
+    client: Annotated[
+        SkipValidation[Client],
+        Field(
+            title="Client",
+            description="Registry API client.",
+            frozen=False,
+            exclude=True,
+            repr=False,
+        ),
+    ] = Field(default_factory=Client.stub)
+
+    uuid: Annotated[
+        str | UUID4,
+        Field(
+            title="UUID",
+            description="Unique identifier for the organisation.",
+            frozen=True,
+        ),
+    ]
+
+    name: Annotated[
+        str | None,
+        Field(
+            title="Name",
+            description="Name of the organisation.",
+            frozen=True,
+        ),
+    ] = None
+
+    kind: Annotated[
+        Kind | None,
+        Field(
+            title="Kind",
+            description="Kind of the organisation.",
+            alias="type",
+            frozen=True,
+        ),
+    ] = None
+
+    link: Annotated[
+        HttpUrl | None,
+        Field(
+            title="Link",
+            description="Website URL of the organisation.",
+            frozen=True,
+        ),
+    ] = None
+
+    audit: Annotated[
+        AuditLog | None,
+        Field(
+            title="Audit",
+            description="Audit information for the organisation.",
+            frozen=True,
+            exclude=True,
+            repr=False,
+        ),
+    ] = None
+
+    @field_validator("uuid", mode="after")
+    @classmethod
+    def ensure_uuid(cls, value: str | UUID4) -> UUID4:
+        """Normalize the organisation UUID to a UUID4 instance.
+
+        Accepts both `str` and `UUID4` objects for usability, while ensuring
+        the stored value is always a `UUID4`. This avoids type checking errors
+        when a `str` input is provided.
+
+        Args:
+            value (str | UUID4): Unique organisation identifier.
+
+        Returns:
+            out (UUID4): A validated version-4 UUID object.
+
+        Raises:
+            InputValidationError: If the input value is not a valid UUID4.
+
+        """
+        if isinstance(value, str):
+            try:
+                value = UUID(value, version=4)
+            except Exception as e:
+                raise InputValidationError(error=e) from e
+        return value
 
     @authenticated
     def members(
@@ -80,28 +218,33 @@ class Organisation(ArbitraryModel):
         ] = "firstName",
         order: Literal["asc", "desc"] = "asc",
         limit: NonNegativeInt | None = None,
-        progress: Callable | None = None,
+        progress: Progress | None = None,
     ) -> list[Account]:
-        """Get a list of members in the organisation.
+        """List member accounts of the organisation.
 
         Args:
-            sort (Literal[str]): The field to sort the members by.
-            order (Literal[str]): The order of sorting, either 'asc' or 'desc'.
-            limit (NonNegativeInt | None): The maximum number of members to
-                retrieve.
-            progress (Callable | None): A callback function to report progress.
+            sort (Literal): Field to sort the member accounts by.
+            order (Literal): Sorting order, either ascending or descending.
+            limit (NonNegativeInt | None): Maximum number of member accounts to
+                retrieve. If `None`, fetches all available.
+            progress (Progress | None): Callback function to report progress.
 
         Returns:
-            out (list[Account]): A list of accounts that are members of the
-                organisation.
+            out (list[Account]): Member accounts belonging to the organisation.
+                Only opted-in user accounts are included in the response.
 
         Raises:
-            NotAuthenticatedError: If the client is not authenticated.
+            NotAuthenticatedError: If the client is in anonymous mode.
 
         """
-        from .account import Account  # noqa: PLC0415
+        from .account import Account
 
-        users, _ = call_paginated(
+        logger.info(
+            "Fetching member accounts for the organisation: %s",
+            self.uuid,
+        )
+
+        items, _ = call_paginated(
             self.client,
             requests.Request(
                 method="GET",
@@ -115,10 +258,18 @@ class Organisation(ArbitraryModel):
             limit=limit,
             progress=progress,
         )
-        for user in users:
-            user.client = self.client
 
-        return users
+        logger.info(
+            "Fetched %d member accounts for the organisation: %s",
+            len(items),
+            self.uuid,
+        )
+
+        for item in items:
+            item.client = self.client
+            item.consent = True
+
+        return items
 
     @classmethod
     @connected
@@ -136,9 +287,27 @@ class Organisation(ArbitraryModel):
         ] = "name",
         order: Literal["asc", "desc"] = "asc",
         limit: NonNegativeInt | None = None,
-        progress: Callable | None = None,
+        progress: Progress | None = None,
     ) -> list[Self]:
-        """TODO."""
+        """List organisations in the Registry.
+
+        Args:
+            client (Client): Registry API client used to perform requests.
+            sort (Literal): Field to sort the organisations by.
+            order (Literal): Sorting order, either ascending or descending.
+            limit (NonNegativeInt | None): Maximum number of organisations to
+                retrieve. If `None`, fetches all available.
+            progress (Progress | None): Callback function to report progress.
+
+        Returns:
+            out (list[Organisation]): Organisations.
+
+        Raises:
+            NotConnectedError: If the client is in offline mode.
+
+        """
+        logger.info("Fetching organisations.")
+
         items, _ = call_paginated(
             client,
             requests.Request(
@@ -153,15 +322,33 @@ class Organisation(ArbitraryModel):
             limit=limit,
             progress=progress,
         )
+
+        logger.info("Fetched %d organisations.", len(items))
+
         for item in items:
             item.client = client
+
         return items
 
     @classmethod
     @connected
-    def get(cls, client: Client, uuid: UUID4 | str) -> Self:
-        """TODO."""
-        return call(
+    def get(cls, client: Client, uuid: str | UUID4) -> Self:
+        """Retrieve an organisation by its UUID.
+
+        Args:
+            client (Client): Registry API client used to perform requests.
+            uuid (str | UUID4): Unique organisation identifier.
+
+        Returns:
+            out (Organisation): Requested organisation.
+
+        Raises:
+            NotConnectedError: If the client is in offline mode.
+
+        """
+        logger.info("Retrieving organisation: %s.", uuid)
+
+        item = call(
             client,
             requests.Request(
                 method="GET",
@@ -169,3 +356,9 @@ class Organisation(ArbitraryModel):
             ),
             cls,
         )
+
+        logger.info("Retrieved organisation: %s.", uuid)
+
+        item.client = client
+
+        return item

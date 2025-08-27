@@ -1,133 +1,219 @@
 """Registry API client.
 
-This module defines the `Client` class, the primary programmatic interface to
-the iGEM Registry API. It manages connection state, authentication, and
+This submodule defines the `Client` class, the primary programmatic interface
+to the iGEM Registry API. It manages connection state, authentication, and
 consent-based operations.
 
-Includes:
-    Client: The main client class for interacting with the API.
+Exports:
+    Client: Main class for interacting with the Registry API.
+    HealthStatus: Model representing the health status of the Registry API.
 """
 
 from __future__ import annotations
 
-import inspect
 import logging
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Annotated, Literal
 
 import requests
-from pydantic import Field, HttpUrl, TypeAdapter
+from pydantic import Field, HttpUrl, TypeAdapter, ValidationError
 
 from .calls import call
-from .errors import ClientConnectionError, NotAuthenticatedError
-from .schemas import FrozenModel
-from .utils import CleanEnum, authenticated, connected
+from .errors import (
+    ClientAuthenticationError,
+    ClientConnectionError,
+    InputValidationError,
+)
+from .schemas import CleanEnum, LockedModel
+from .utils import authenticated, connected
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
+    from typing import Self
 
     from pydantic import NonNegativeInt
 
     from .account import Account
     from .rates import RateLimit
 
-logger = logging.getLogger(__name__)
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
-__all__ = [
+__all__: list[str] = [
     "Client",
-    "ClientMode",
-    "HealthCheck",
+    "HealthStatus",
 ]
 
 
-class ClientMode(CleanEnum):
-    """API client operation modes."""
+class Mode(CleanEnum):
+    """API client operation modes.
+
+    Defines the different modes in which the API client can operate.
+
+    Attributes:
+        NONE: No authentication or connection.
+        ANON: Anonymous mode, no user context.
+        AUTH: Authenticated mode, user context available.
+
+    """
 
     NONE = "NONE"
     ANON = "ANON"
     AUTH = "AUTH"
 
 
-class StatusItem(FrozenModel):
-    """Data model for resource status."""
+class StatusInfo(LockedModel):
+    """Status information.
 
-    status: Literal["up", "down"] = Field(
-        title="Status",
-        description="The status of the resource.",
-    )
+    Represents the runtime status of various resources in the iGEM Registry.
 
+    Attributes:
+        status (Literal): Status of the resource.
 
-class ServerInfo(StatusItem):
-    """Data model for backend server information."""
+    """
 
-    environment: Literal["production", "staging", "development"] = Field(
-        title="Environment",
-        description="The environment in which the server is running.",
-    )
-    version: str = Field(
-        title="Version",
-        description="The version of the server.",
-    )
+    status: Annotated[
+        Literal["up", "down"],
+        Field(
+            title="Status",
+            description="Status of the resource.",
+        ),
+    ]
 
 
-class ResourceData(FrozenModel):
-    """Data model for registry resources."""
+class ServerInfo(StatusInfo):
+    """Server information.
 
-    server: ServerInfo | None = Field(
-        title="Server",
-        description="Data about the server status.",
-        default=None,
-    )
-    database: StatusItem | None = Field(
-        title="Database",
-        description="Data about the database status.",
-        default=None,
-    )
-    memory_rss: StatusItem | None = Field(
-        title="Memory RSS",
-        description="Data about the memory RSS status.",
-        default=None,
-    )
-    redis: StatusItem | None = Field(
-        title="Redis",
-        description="Data about the Redis status.",
-        default=None,
-    )
+    Represents the runtime information of the server.
+
+    Attributes:
+        environment (Literal): Environment in which the server is running.
+        version (str): Version of the server.
+
+    """
+
+    environment: Annotated[
+        Literal["production", "staging", "development"],
+        Field(
+            title="Environment",
+            description="Environment in which the server is running.",
+        ),
+    ]
+
+    version: Annotated[
+        str,
+        Field(
+            title="Version",
+            description="Version of the server.",
+        ),
+    ]
 
 
-class HealthCheck(FrozenModel):
-    """Health check model for the registry instance."""
+class ResourceData(LockedModel):
+    """Resource data.
 
-    status: Literal["ok", "error"] = Field(
-        title="Status",
-        description="Registry instance health status.",
-    )
-    info: ResourceData = Field(
-        title="Info",
-        description="Information about the registry instance resources.",
-    )
-    error: ResourceData = Field(
-        title="Error",
-        description="Errors encountered by the registry instance resources.",
-    )
-    details: ResourceData = Field(
-        title="Details",
-        description="Further details about the registry instance resources.",
-    )
+    Represents the information related to the runtime status of various
+    resources in the iGEM Registry.
+
+    Attributes:
+        server (ServerInfo | None): Data about the server status.
+        database (StatusInfo | None): Data about the database status.
+        memory_rss (StatusInfo | None): Data about the memory RSS status.
+        redis (StatusInfo | None): Data about the Redis status.
+
+    """
+
+    server: Annotated[
+        ServerInfo | None,
+        Field(
+            title="Server",
+            description="Data about the server status.",
+        ),
+    ] = None
+
+    database: Annotated[
+        StatusInfo | None,
+        Field(
+            title="Database",
+            description="Data about the database status.",
+        ),
+    ] = None
+
+    memory_rss: Annotated[
+        StatusInfo | None,
+        Field(
+            title="Memory RSS",
+            description="Data about the memory RSS status.",
+        ),
+    ] = None
+
+    redis: Annotated[
+        StatusInfo | None,
+        Field(
+            title="Redis",
+            description="Data about the Redis status.",
+        ),
+    ] = None
+
+
+class HealthStatus(LockedModel):
+    """Health status.
+
+    Represents the runtime status of the iGEM Registry and its resources.
+
+    Attributes:
+        status (Literal): Overall health status of the Registry.
+        info (ResourceData): Information about the Registry's resources.
+        error (ResourceData): Errors encountered by the Registry's resources.
+        details (ResourceData): Further details about the Registry's resources.
+
+    """
+
+    status: Annotated[
+        Literal["ok", "error"],
+        Field(
+            title="Status",
+            description="Registry health status.",
+        ),
+    ]
+
+    info: Annotated[
+        ResourceData,
+        Field(
+            title="Info",
+            description="Information about the Registry's resources.",
+        ),
+    ]
+
+    error: Annotated[
+        ResourceData,
+        Field(
+            title="Error",
+            description="Errors encountered by the Registry's resources.",
+        ),
+    ]
+
+    details: Annotated[
+        ResourceData,
+        Field(
+            title="Details",
+            description="Further details about the Registry's resources.",
+        ),
+    ]
 
 
 class Client:
     """Registry API client.
 
-    The `Client` class provides the main programmatic interface to the iGEM
-    Registry API. It encapsulates connection management, authentication,
-    and user consent handling.
+    Represents the main programmatic interface for interacting with iGEM
+    Registry API managing connection, authentication, and user consent, with
+    modes for offline, anonymous, and authenticated states.
 
     This class is **not** thread-safe and should not be shared across threads
     without external synchronization.
     """
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         base: str | None = "https://api.registry.igem.org/v1",
         *,
@@ -142,15 +228,18 @@ class Client:
         redirects: bool = True,
         retries: NonNegativeInt = 3,
     ) -> None:
-        """Create a new Registry API client instance.
+        """Registry API client.
 
-        The client represents the primary programmatic interface to the iGEM
-        Registry. By default, the client starts in offline mode if `base` is
-        not provided. With a valid base URL, `connect()` may be used to verify
-        the remote instance and enter anonymous mode. For authenticated
-        operations, `sign_in()` transitions the client into authenticated mode.
-        Consent-based actions such as part authoring or publishing of parts can
-        be enabled via `opt_in()`.
+        Represents the main programmatic interface for interacting with iGEM
+        Registry API. It encapsulates connection management, authentication,
+        and user consent handling.
+
+        By default, the client starts in offline mode if `base` is not
+        provided. With a valid base URL, `connect()` may be used to verify the
+        Registry status and enter anonymous mode. For authenticated operations,
+        `sign_in()` transitions the client into authenticated mode. Actions
+        requiring user consent, such as part authoring or publishing, can be
+        enabled via `opt_in()`.
 
         This class is **not** thread-safe. Do not share a single instance
         across threads without external synchronization.
@@ -158,7 +247,7 @@ class Client:
         Args:
             base (str | None): Base URL of the Registry API. If provided, must
                 be a valid HTTP URL. If `None`, the client is unable to connect
-                to the registry instance (offline mode).
+                to the Registry instance (offline mode).
             verify (bool | str): TLS verification setting passed to `requests`.
                 Can be set to `False` (disables verification), `True` (enables
                 verification), or a path to a CA bundle.
@@ -174,15 +263,17 @@ class Client:
                 certificate or a tuple of paths to the certificate and the
                 corresponding key files.
             redirects (bool): Whether redirects are allowed by default.
-            retries (NonNegativeInt): Retry budget for failed requests. Applies
-                to both server-side errors (5xx responses) and API rate-limit
-                backoffs. Once exhausted, the request will raise an error.
+            retries (NonNegativeInt): Retry budget for failed requests.
 
         Raises:
-            pydantic.ValidationError: If `base` string is not a valid HTTP URL.
+            InputValidationError: If the provided base URL is invalid.
 
         Examples:
-            ```
+           Create, connect, authenticate, and opt in with `Client`:
+
+            ```python
+            from igem_registry_api import Client
+
             client = Client()
             client.connect()
             client.sign_in("username", "password")
@@ -206,41 +297,64 @@ class Client:
                 "retries": retries,
             },
         )
-        self.base: HttpUrl | None = (
-            TypeAdapter(HttpUrl).validate_python(base.rstrip("/"))
-            if base is not None
-            else None
-        )
-        self.mode: ClientMode = ClientMode.NONE
+
+        try:
+            self.base: HttpUrl | None = (
+                TypeAdapter(HttpUrl).validate_python(base.rstrip("/"))
+                if base is not None
+                else None
+            )
+        except ValidationError as e:
+            raise InputValidationError(error=e) from e
+
+        self.mode: Mode = Mode.NONE
         self.session: requests.Session = requests.Session()
 
-        self.verify = verify
-        self.timeout = timeout
-        self.stream = stream
-        self.proxies = proxies
-        self.certificate = certificate
-        self.redirects = redirects
-        self.retries = retries
+        self.verify: bool | str = verify
+        self.timeout: (
+            None | float | tuple[float, None] | tuple[float, float]
+        ) = timeout
+        self.stream: bool = stream
+        self.proxies: MutableMapping[str, str] | None = proxies
+        self.certificate: str | tuple[str, str] | None = certificate
+        self.redirects: bool = redirects
+        self.retries: NonNegativeInt = retries
 
         self.ratelimit: RateLimit | None = None
         self.cooldown: NonNegativeInt = 0
 
         self.user: Account | None = None
 
+    @classmethod
+    def stub(cls) -> Self:
+        """Create a stub client instance without initializing it.
+
+        Returns:
+            out (Client): A stub client instance.
+
+        """
+        inst = object.__new__(cls)
+
+        inst.base = None
+        inst.mode = Mode.NONE
+        inst.user = None
+
+        return inst
+
     @property
     def is_none(self) -> bool:
-        """Check if the client is in local mode."""
-        return self.mode is ClientMode.NONE
+        """Check if the client is in offline mode."""
+        return self.mode is Mode.NONE
 
     @property
     def is_anon(self) -> bool:
         """Check if the client is in anonymous mode."""
-        return self.mode is ClientMode.ANON
+        return self.mode is Mode.ANON
 
     @property
     def is_auth(self) -> bool:
         """Check if the client is in authenticated mode."""
-        return self.mode is ClientMode.AUTH
+        return self.mode is Mode.AUTH
 
     @property
     def is_opted_in(self) -> bool:
@@ -250,54 +364,57 @@ class Client:
         return self.user.consent is True
 
     def connect(self) -> None:
-        """Connect the client to the API.
+        """Connect the client to the Registry.
 
         Raises:
-            ClientConnectionError: If the client is already connected, the
-            API base URL for connection is not set, or health check of the
-            registry API instance fails.
+            ClientConnectionError: If client connection fails.
 
         """
-        logger.info("Connecting client to API at base URL: %s", self.base)
+        logger.info("Connecting client to Registry at base URL: %s", self.base)
         if not self.is_none:
-            msg = "Client is already connected."
-            logger.error(msg)
-            raise ClientConnectionError(msg)
+            raise ClientConnectionError(message="Client is already connected.")
         if self.base is None:
-            msg = "API base URL is not set."
-            logger.error(msg)
-            raise ClientConnectionError(msg)
+            raise ClientConnectionError(message="Base URL is not set.")
 
-        health: HealthCheck = inspect.unwrap(Client.health)(self)
+        self.mode = Mode.ANON
+
+        try:
+            health: HealthStatus = self.health()
+        except Exception as e:
+            self.mode = Mode.NONE
+            raise ClientConnectionError(
+                message="Failed to check health status.",
+            ) from e
+
         if health.status != "ok":
-            msg = f"Health check failed: {health.status}."
-            logger.error(msg)
-            raise ClientConnectionError(msg)
-
-        self.mode = ClientMode.ANON
+            self.mode = Mode.NONE
+            raise ClientConnectionError(
+                message=f"Health check failed: '{health.status}'.",
+            )
 
     @connected
     def disconnect(self) -> None:
-        """Disconnect the client from the API.
+        """Disconnect the client from the Registry.
 
         Raises:
-            NotConnectedError: If the client is not connected.
+            NotConnectedError: If the client is in offline mode.
 
         """
-        logger.info("Disconnecting client from API.")
+        logger.info("Disconnecting client from Registry.")
+
         self.session.close()
         self.user = None
-        self.mode = ClientMode.NONE
+        self.mode = Mode.NONE
 
     @connected
-    def health(self) -> HealthCheck:
-        """Check the health of the registry instance.
+    def health(self) -> HealthStatus:
+        """Check the health of the Registry.
 
         Returns:
-            out (HealthCheck): The health data of the registry instance.
+            out (HealthStatus): Runtime status of the Registry.
 
         Raises:
-            NotConnectedError: If the client is not connected.
+            NotConnectedError: If the client is in offline mode.
 
         """
         return call(
@@ -306,7 +423,7 @@ class Client:
                 method="GET",
                 url=f"{self.base}/health",
             ),
-            HealthCheck,
+            HealthStatus,
         )
 
     @connected
@@ -314,81 +431,106 @@ class Client:
         self,
         username: str,
         password: str,
-        instance: str = "https://api.igem.org/v1",
+        provider: str = "https://api.igem.org/v1",
     ) -> None:
-        """Authenticate the user.
+        """Sign in to an account.
 
-        Attributes:
-            username (str): The username of the user.
-            password (str): The password of the user.
-            instance (str): The instance URL granting authentication token.
+        Args:
+            username (str): Username of the account.
+            password (str): Password of the account.
+            provider (str): Base URL of the identity provider granting
+                authentication token.
 
         Raises:
-            NotConnectedError: If the client is not connected.
+            NotConnectedError: If the client is in offline mode.
+            ClientAuthenticationError: If the authentication fails.
 
         """
-        logger.info("Signing in user %s", username)
-        call(
-            self,
-            requests.Request(
-                method="POST",
-                url=f"{instance}/auth/sign-in",
-                headers={"Content-Type": "application/json"},
-                json={
-                    "identifier": username,
-                    "password": password,
-                },
-            ),
-        )
-        call(
-            self,
-            requests.Request(
-                method="GET",
-                url=f"{self.base}/auth/oauth/default/login",
-            ),
-        )
+        logger.info("Signing in to user account '%s'", username)
 
-        self.user = cast("Account", inspect.unwrap(Client.me)(self))
-        self.user.set_username(username)
-        self.mode = ClientMode.AUTH
+        if self.is_auth:
+            raise ClientAuthenticationError(
+                message="Client is already in authenticated mode.",
+            )
+
+        try:
+            call(
+                self,
+                requests.Request(
+                    method="POST",
+                    url=f"{provider}/auth/sign-in",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "identifier": username,
+                        "password": password,
+                    },
+                ),
+            )
+        except Exception as e:
+            raise ClientAuthenticationError(
+                message="Failed to authenticate account.",
+            ) from e
+
+        try:
+            call(
+                self,
+                requests.Request(
+                    method="GET",
+                    url=f"{self.base}/auth/oauth/default/login",
+                ),
+            )
+        except Exception as e:
+            raise ClientAuthenticationError(
+                message="Failed to generate authentication token.",
+            ) from e
+
+        self.mode = Mode.AUTH
+
+        try:
+            self.user = self.me()
+        except Exception as e:
+            self.mode = Mode.ANON
+            raise ClientAuthenticationError(
+                message="Failed to fetch authenticated account information.",
+            ) from e
+
+        self.user.username = username
 
     @authenticated
     def sign_out(self) -> None:
-        """Sign out the authenticated user.
+        """Sign out of the authenticated account.
 
         Raises:
-            NotAuthenticatedError: If the client is not authenticated.
+            NotAuthenticatedError: If the client is in anonymous mode.
 
         """
-        if self.user is None:
-            msg = f"Authentication required for {self.sign_out.__name__}()"
-            logger.error(msg)
-            raise NotAuthenticatedError(msg)
-        logger.info("Signing out user %s", self.user.username)
-        call(
-            self,
-            requests.Request(
-                method="POST",
-                url=f"{self.base}/auth/sign-out",
-            ),
-        )
+        if self.user:
+            logger.info("Signing out of account '%s'", self.user.username)
 
-        self.session.cookies.clear()
-        self.user = None
-        self.mode = ClientMode.ANON
+            call(
+                self,
+                requests.Request(
+                    method="POST",
+                    url=f"{self.base}/auth/sign-out",
+                ),
+            )
+
+            self.session.cookies.clear()
+            self.user = None
+            self.mode = Mode.ANON
 
     @authenticated
     def me(self) -> Account:
-        """Get information about the authenticated user.
+        """Get information about the authenticated account.
 
         Returns:
-            out (UserData): The authenticated user data.
+            out (Account): Authenticated account.
 
         Raises:
-            NotAuthenticatedError: If the client is not authenticated.
+            NotAuthenticatedError: If the client is in anonymous mode.
 
         """
-        from .account import Account  # noqa: PLC0415
+        from .account import Account
 
         user = call(
             self,
@@ -398,56 +540,63 @@ class Client:
             ),
             Account,
         )
+
         user.client = self
 
         return user
 
     @authenticated
     def opt_in(self) -> None:
-        """Opt-in the authenticated user.
+        """Opt-in the authenticated account for authoring.
 
         Raises:
-            NotAuthenticatedError: If the client is not authenticated.
+            NotAuthenticatedError: If the client is in anonymous mode.
 
         """
-        if self.user is None:
-            msg = f"Authentication required for {self.opt_in.__name__}()"
-            logger.error(msg)
-            raise NotAuthenticatedError(msg)
-        logger.info("Opting in user %s", self.user.username)
-        if self.user.consent:
-            logger.error("User already opted in.")
-            return
-        call(
-            self,
-            requests.Request(
-                method="POST",
-                url=f"{self.base}/accounts/opt-in",
-            ),
-        )
-        self.user = self.user.model_copy(update={"consent": True})
+        if self.user:
+            if self.user.consent:
+                logger.info(
+                    "User '%s' is already opted in",
+                    self.user.username,
+                )
+                return
+
+            logger.info("Opting in with account '%s'", self.user.username)
+
+            call(
+                self,
+                requests.Request(
+                    method="POST",
+                    url=f"{self.base}/accounts/opt-in",
+                ),
+            )
+
+            self.user.consent = True
 
     @authenticated
     def opt_out(self) -> None:
-        """Opt-out the authenticated user.
+        """Opt-out the authenticated account from authoring.
 
         Raises:
-            NotAuthenticatedError: If the client is not authenticated.
+            NotAuthenticatedError: If the client is in anonymous mode.
 
         """
-        if self.user is None:
-            msg = f"Authentication required for {self.opt_out.__name__}()"
-            logger.error(msg)
-            raise NotAuthenticatedError(msg)
-        logger.info("Opting out user %s", self.user.username)
-        if not self.user.consent:
-            logger.error("User already opted out.")
-            return
-        call(
-            self,
-            requests.Request(
-                method="POST",
-                url=f"{self.base}/accounts/opt-out",
-            ),
-        )
-        self.user = self.user.model_copy(update={"consent": False})
+        if self.user:
+            if not self.user.consent:
+                logger.info(
+                    "User '%s' is not opted in",
+                    self.user.username,
+                )
+                return
+
+            logger.info("Opting out with account '%s'", self.user.username)
+
+            call(
+                self,
+                requests.Request(
+                    method="POST",
+                    url=f"{self.base}/accounts/opt-out",
+                ),
+            )
+
+            self.user.consent = False

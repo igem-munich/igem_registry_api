@@ -1,58 +1,197 @@
-"""TODO."""
+"""Part type models and lookups.
+
+This submodule defines the `Type` model used to classify Registry parts.
+All defined types are available for fast local lookup as class constants.
+
+Exports:
+    Type: Model representing a part type.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Literal, Self
+import logging
+from typing import TYPE_CHECKING, Annotated, ClassVar
 from uuid import UUID
 
 import requests
-from pydantic import UUID4, Field, NonNegativeInt, SkipValidation
+from pydantic import (
+    UUID4,
+    Field,
+    NonNegativeInt,
+    field_validator,
+)
 
 from .calls import call, call_paginated
-from .client import Client
-from .schemas import ArbitraryModel
+from .errors import InputValidationError, NotFoundError
+from .schemas import LockedModel, Progress
 from .utils import connected
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from typing import Literal, Self
+
+    from .client import Client
 
 
-class Type(ArbitraryModel):
-    """TODO."""
+logger: logging.Logger = logging.getLogger(__name__)
 
-    client: SkipValidation[Client] = Field(
-        title="Client",
-        description="Registry API client instance.",
-        default=Client(),
-        exclude=True,
-        repr=False,
-    )
 
-    uuid: UUID4 = Field(
-        title="UUID",
-        description="The unique identifier for the part type.",
-    )
-    slug: str = Field(
-        title="Slug",
-        description="The URL-friendly identifier for the part type.",
-    )
-    name: str = Field(
-        title="Name",
-        description="The name of the part type.",
-        alias="label",
-    )
-    description: str | None = Field(
-        title="Description",
-        description="A brief description of the part type.",
-        default=None,
-    )
+__all__: list[str] = [
+    "Type",
+]
+
+
+class Type(LockedModel):
+    """Part type.
+
+    Represents a type used to classify Registry parts. Available types are
+    defined as class constants (e.g. `Type.PLASMID`) and stored in an in-memory
+    catalog for direct use in code.
+
+    Types can be resolved locally via `from_uuid()` or `from_id()`, or
+    retrieved remotely through the API using `fetch()` and `get()`.
+
+    Attributes:
+        uuid (str | UUID4): Unique type identifier (version-4 UUID).
+        slug (str | None): URL-friendly identifier for the type.
+        name (str | None): Name of the type.
+        description (str | None): Brief description of the type.
+
+    Examples:
+        Access a predefined type:
+
+        ```python
+        from igem_registry_api import Type
+
+        typ = Type.PLASMID
+        print(typ.uuid, typ.name)
+        ```
+
+        Resolve types from the in-memory catalog:
+        ```python
+        from igem_registry_api import Type
+
+        typ1 = Type.from_id("plasmid")
+        typ2 = Type.from_uuid("8ac2d621-12cf-4aec-9b88-a78250438517")
+
+        print(typ1 is typ2)
+        ```
+
+        Retrieve types from the Registry API:
+        ```python
+        from igem_registry_api import Client, Type
+
+        client = Client()
+        client.connect()
+
+        types = Type.fetch(client, limit=5)
+        print(Type.get(client, types[0].uuid))
+        ```
+
+    """
+
+    uuid: Annotated[
+        str | UUID4,
+        Field(
+            title="UUID",
+            description="Unique identifier for the part type.",
+        ),
+    ]
+
+    slug: Annotated[
+        str | None,
+        Field(
+            title="Slug",
+            description="The URL-friendly identifier for the part type.",
+        ),
+    ] = None
+
+    name: Annotated[
+        str | None,
+        Field(
+            title="Name",
+            description="Name of the part type.",
+            alias="label",
+        ),
+    ] = None
+
+    description: Annotated[
+        str | None,
+        Field(
+            title="Description",
+            description="A brief description of the part type.",
+        ),
+    ] = None
+
+    @field_validator("uuid", mode="after")
+    @classmethod
+    def ensure_uuid(cls, value: str | UUID4) -> UUID4:
+        """Normalize the type UUID to a UUID4 instance.
+
+        Accepts both `str` and `UUID4` objects for usability, while ensuring
+        the stored value is always a `UUID4`. This avoids type checking errors
+        when a `str` input is provided.
+
+        Args:
+            value (str | UUID4): Unique type identifier.
+
+        Returns:
+            out (UUID4): A validated version-4 UUID object.
+
+        Raises:
+            InputValidationError: If the input value is not a valid UUID4.
+
+        """
+        if isinstance(value, str):
+            try:
+                value = UUID(value, version=4)
+            except Exception as e:
+                raise InputValidationError(error=e) from e
+        return value
 
     @classmethod
-    def from_uuid(cls, uuid: str) -> Self:
-        """TODO."""
-        if uuid in cls.REGISTRY:
-            return cls.REGISTRY[uuid]
-        raise ValueError
+    def from_uuid(cls, uuid: str | UUID4) -> Self:
+        """Resolve a type from its UUID.
+
+        Accepts both `str` and `UUID4` objects for usability, normalizes to a
+        v4 UUID string, and looks it up from the in-memory catalog.
+
+        Args:
+            uuid (str | UUID4): Unique type identifier.
+
+        Returns:
+            out (Type): Matching type.
+
+        Raises:
+            NotFoundError: If no type exists for the given UUID.
+
+        """
+        key = str(UUID(uuid, version=4) if isinstance(uuid, str) else uuid)
+        logger.debug("Resolving type by uuid: %s.", key)
+        try:
+            return cls.CATALOG[key]
+        except KeyError as e:
+            raise NotFoundError(item="type", key="uuid", value=key) from e
+
+    @classmethod
+    def from_id(cls, identifier: str) -> Self:
+        """Resolve a type from its slug.
+
+        Args:
+            identifier (str): Type slug.
+
+        Returns:
+            out (Type): Matching type.
+
+        Raises:
+            NotFoundError: If no type exists for the given slug.
+
+        """
+        key = identifier
+        logger.debug("Resolving type by slug: %s.", key)
+        try:
+            return cls.CATALOG[key]
+        except KeyError as e:
+            raise NotFoundError(item="type", key="slug", value=key) from e
 
     @classmethod
     @connected
@@ -67,9 +206,27 @@ class Type(ArbitraryModel):
         ] = "label",
         order: Literal["asc", "desc"] = "asc",
         limit: NonNegativeInt | None = None,
-        progress: Callable | None = None,
+        progress: Progress | None = None,
     ) -> list[Self]:
-        """TODO."""
+        """List part types from the Registry.
+
+        Args:
+            client (Client): Registry API client used to perform requests.
+            sort (Literal): Field to sort the types by.
+            order (Literal): Sorting order, either ascending or descending.
+            limit (NonNegativeInt | None): Maximum number of types to
+                retrieve. If `None`, fetches all available.
+            progress (Progress | None): Callback function to report progress.
+
+        Returns:
+            out (list[Type]): Part types.
+
+        Raises:
+            NotConnectedError: If the client is in offline mode.
+
+        """
+        logger.info("Fetching types.")
+
         items, _ = call_paginated(
             client,
             requests.Request(
@@ -84,15 +241,30 @@ class Type(ArbitraryModel):
             limit=limit,
             progress=progress,
         )
-        for item in items:
-            item.client = client
+
+        logger.info("Fetched %d types.", len(items))
+
         return items
 
     @classmethod
     @connected
     def get(cls, client: Client, uuid: UUID4 | str) -> Self:
-        """TODO."""
-        return call(
+        """Retrieve a part type by its UUID.
+
+        Args:
+            client (Client): Registry API client used to perform requests.
+            uuid (str | UUID4): Unique type identifier.
+
+        Returns:
+            out (Type): Requested type.
+
+        Raises:
+            NotConnectedError: If the client is in offline mode.
+
+        """
+        logger.info("Retrieving type: %s.", uuid)
+
+        item = call(
             client,
             requests.Request(
                 method="GET",
@@ -101,7 +273,11 @@ class Type(ArbitraryModel):
             cls,
         )
 
-    REGISTRY: ClassVar[dict[str, Self]]
+        logger.info("Retrieved type: %s.", uuid)
+
+        return item
+
+    CATALOG: ClassVar[dict[str, Self]]
 
     TERMINATOR: ClassVar[Self]
     RBS: ClassVar[Self]
@@ -132,7 +308,7 @@ class Type(ArbitraryModel):
 Type.TERMINATOR = Type(
     uuid=UUID("828126a4-2ae9-47ce-9079-42ad82a62d32"),
     slug="terminator",
-    label="Terminator",
+    name="Terminator",
     description=(
         "A nucleic acid sequence that marks the end of a gene or operon "
         "in genomic DNA during transcription. Terminators include "
@@ -144,7 +320,7 @@ Type.TERMINATOR = Type(
 Type.RBS = Type(
     uuid=UUID("9136e5fb-7232-4992-b828-d4fa4889ce63"),
     slug="rbs",
-    label="RBS",
+    name="RBS",
     description=(
         "A nucleic acid sequence upstream of the start codon of an mRNA "
         "transcript that is responsible for the recruitment of a ribosome "
@@ -157,7 +333,7 @@ Type.RBS = Type(
 Type.DNA = Type(
     uuid=UUID("b252b723-460a-4b72-8eb0-de389932de00"),
     slug="dna",
-    label="DNA",
+    name="DNA",
     description=(
         "A nucleic acid sequence that represents a functional DNA element "
         "and is not otherwise classified. This includes restriction "
@@ -170,7 +346,7 @@ Type.DNA = Type(
 Type.CODING = Type(
     uuid=UUID("a797873a-d73a-454d-9c03-ee5dd5974980"),
     slug="coding",
-    label="Coding",
+    name="Coding",
     description=(
         "A nucleic acid sequence that encodes a protein or a peptide. "
         "Coding sequences (CDS) should begin with a start codon (3'-ATG) "
@@ -180,7 +356,7 @@ Type.CODING = Type(
 Type.REPORTER = Type(
     uuid=UUID("0a6e2d17-78fd-42f3-836c-181d545cfe27"),
     slug="reporter",
-    label="Reporter",
+    name="Reporter",
     description=(
         "A nucleic acid sequence that represents a reporter device. "
         "Typically, this part type includes a coding sequence (CDS) for "
@@ -192,7 +368,7 @@ Type.REPORTER = Type(
 Type.REGULATORY = Type(
     uuid=UUID("324e9810-8719-4dd8-8c39-989a015a96a1"),
     slug="regulatory",
-    label="Regulatory",
+    name="Regulatory",
     description=(
         "A nucleic acid sequence that regulates the expression of a gene. "
         "Typically, this part type includes enhancers, silencers, and "
@@ -202,7 +378,7 @@ Type.REGULATORY = Type(
 Type.RNA = Type(
     uuid=UUID("258808a8-f859-4f0f-a1b9-17e591020eb8"),
     slug="rna",
-    label="RNA",
+    name="RNA",
     description=(
         "A nucleic acid sequence that represents a functional RNA element "
         "and is not otherwise classified. This includes ribozymes, "
@@ -216,9 +392,9 @@ Type.RNA = Type(
 Type.GENERATOR = Type(
     uuid=UUID("4a83aa73-05f2-4c21-8b0f-80e325daceda"),
     slug="generator",
-    label="Generator",
+    name="Generator",
     description=(
-        "A nucleic acid sequence that represents a protein generator"
+        "A nucleic acid sequence that represents a protein generator "
         "device. Typically, generators comprise a promoter, a ribosome "
         "binding site (RBS), a coding sequence (CDS), and a terminator."
     ),
@@ -226,9 +402,9 @@ Type.GENERATOR = Type(
 Type.INVERTER = Type(
     uuid=UUID("0eb9e8c5-5e40-4bdf-a405-cbcd69e50e7d"),
     slug="inverter",
-    label="Inverter",
+    name="Inverter",
     description=(
-        "A nucleic acid sequence that represents a genetic inverter"
+        "A nucleic acid sequence that represents a genetic inverter "
         "device, capable of reversing the expression of a gene. "
         "This part type typically comprises a protein generator for a "
         "transcriptional repressor."
@@ -237,17 +413,17 @@ Type.INVERTER = Type(
 Type.INTERMEDIATE = Type(
     uuid=UUID("28abb4c8-7237-462c-a904-bb722692e0ff"),
     slug="intermediate",
-    label="Intermediate",
+    name="Intermediate",
     description=(
         "A nucleic acid sequence that serves as a construction "
-        "intermediate created during the assembly of a composite part,"
+        "intermediate created during the assembly of a composite part, "
         "but that has no specific purpose or function on its own."
     ),
 )
 Type.SIGNALLING = Type(
     uuid=UUID("c0495fda-9566-42c7-b9e8-75a04f53dbd3"),
     slug="signalling",
-    label="Signalling",
+    name="Signalling",
     description=(
         "A nucleic acid sequence that encodes a signaling device, "
         "enabling biological communication across or within cells. "
@@ -257,7 +433,7 @@ Type.SIGNALLING = Type(
 Type.MEASUREMENT = Type(
     uuid=UUID("495a25e5-f788-4bd2-899c-2f4b3e503525"),
     slug="measurement",
-    label="Measurement",
+    name="Measurement",
     description=(
         "A nucleic acid sequence that encodes a measurement device, "
         "designed for the quantitative characterization of biological "
@@ -269,7 +445,7 @@ Type.MEASUREMENT = Type(
 Type.TRANSLATIONAL_UNIT = Type(
     uuid=UUID("a5e00389-c83b-410d-adee-048df3ecaf84"),
     slug="translational-unit",
-    label="Translational Unit",
+    name="Translational Unit",
     description=(
         "A nucleic acid sequence composed of a ribosome binding site "
         "(RBS) and a coding sequence (CDS), that typically ends with a "
@@ -279,7 +455,7 @@ Type.TRANSLATIONAL_UNIT = Type(
 Type.PLASMID_BACKBONE = Type(
     uuid=UUID("6c416322-36f4-4348-8ebc-3ee82622a000"),
     slug="plasmid-backbone",
-    label="Plasmid Backbone",
+    name="Plasmid Backbone",
     description=(
         "A nucleic acid sequence that is part of a plasmid, typically "
         "including the origin of replication (ori) and antibiotic "
@@ -290,7 +466,7 @@ Type.PLASMID_BACKBONE = Type(
 Type.PRIMER = Type(
     uuid=UUID("e4bfbdbc-c096-4dfb-aae2-634204149ef2"),
     slug="primer",
-    label="Primer",
+    name="Primer",
     description=(
         "A short nucleic acid sequence that provides a starting point for "
         "DNA synthesis."
@@ -299,7 +475,7 @@ Type.PRIMER = Type(
 Type.CELL = Type(
     uuid=UUID("c27b7035-c0b7-4d78-a90f-89dfdae571e6"),
     slug="cell",
-    label="Cell",
+    name="Cell",
     description=(
         "A biological chassis represented as a host cell strain. "
         "These parts denote commonly used laboratory E. coli strains, "
@@ -310,7 +486,7 @@ Type.CELL = Type(
 Type.DEVICE = Type(
     uuid=UUID("6c8acd81-d083-4f0c-9601-181ef22497d9"),
     slug="device",
-    label="Device",
+    name="Device",
     description=(
         "A nucleic acid sequence that encodes a genetic device, "
         "acting as a functional unit for information processing "
@@ -321,11 +497,11 @@ Type.DEVICE = Type(
 Type.PLASMID = Type(
     uuid=UUID("8ac2d621-12cf-4aec-9b88-a78250438517"),
     slug="plasmid",
-    label="Plasmid",
+    name="Plasmid",
     description=(
         "A nucleic acid sequence, that represents an extrachromosomal DNA "
         "molecule within a cell capable of independent replication."
-        "Typically composed of a plasmid backbone and a protein generator"
+        "Typically composed of a plasmid backbone and a protein generator "
         "comprising a promoter, a ribosome binding site (RBS), a coding "
         "sequence (CDS), and a terminator."
     ),
@@ -333,7 +509,7 @@ Type.PLASMID = Type(
 Type.CONJUGATION = Type(
     uuid=UUID("5b12b3f8-a959-4503-9e62-40a4bd38626a"),
     slug="conjugation",
-    label="Conjugation",
+    name="Conjugation",
     description=(
         "A nucleic acid sequence that facilitates the horizontal transfer "
         "of genetic material between bacterial cells through direct "
@@ -345,7 +521,7 @@ Type.CONJUGATION = Type(
 Type.T7 = Type(
     uuid=UUID("2fabb627-e479-45b1-853d-623edf20802c"),
     slug="t7",
-    label="T7",
+    name="T7",
     description=(
         "A biological chassis represented by bacteriophage T7. "
         "This part type reflects the use of T7 phage as a model system "
@@ -356,13 +532,13 @@ Type.T7 = Type(
 Type.PROTEIN_DOMAIN = Type(
     uuid=UUID("e4156669-594b-4100-8df9-af208b8e8c97"),
     slug="protein-domain",
-    label="Protein Domain",
+    name="Protein Domain",
     description=("A nucleic acid sequence that encodes a part of a protein."),
 )
 Type.SCAR = Type(
     uuid=UUID("9e0c5a67-0a07-48fd-ace3-e94e06820291"),
     slug="scar",
-    label="Scar",
+    name="Scar",
     description=(
         "A nucleic acid sequence that is a scar left after the assembly "
         "of a composite part, typically resulting from the use of "
@@ -372,7 +548,7 @@ Type.SCAR = Type(
 Type.PROMOTER = Type(
     uuid=UUID("0f026097-b490-41eb-b042-78316fc4f218"),
     slug="promoter",
-    label="Promoter",
+    name="Promoter",
     description=(
         "A nucleic acid sequence that initiates transcription of a gene, "
         "typically a promoter that recruits transcriptional machinery and "
@@ -383,16 +559,16 @@ Type.PROMOTER = Type(
 Type.MISCELLANEOUS = Type(
     uuid=UUID("56828cb1-3c65-4833-bd2c-dcdddd8d043b"),
     slug="miscellaneous",
-    label="Miscellaneous",
+    name="Miscellaneous",
     description=(
         "A part that does not fit into any other category, due to its "
         "unique or undefined functions."
     ),
 )
 
-Type.REGISTRY = {
-    str(item.uuid): item
-    for item in [
+Type.CATALOG = {
+    str(key): value
+    for value in [
         Type.TERMINATOR,
         Type.RBS,
         Type.DNA,
@@ -418,4 +594,5 @@ Type.REGISTRY = {
         Type.PROMOTER,
         Type.MISCELLANEOUS,
     ]
+    for key in (value.uuid, value.slug)
 }

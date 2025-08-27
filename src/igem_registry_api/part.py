@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal, Self
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Annotated, Literal, Self
+from uuid import UUID
 
 import requests
 from Bio.Seq import Seq
 from pydantic import (
     UUID4,
+    AfterValidator,
     Field,
     NonNegativeInt,
     field_serializer,
@@ -16,13 +19,15 @@ from pydantic import (
     model_validator,
 )
 
+from .author import Author
 from .calls import call, call_paginated
 from .category import Category
 from .client import Client
 from .license import License
-from .schemas import ArbitraryModel, AuditLog
+from .organisation import Organisation
+from .schemas import AuditLog, CleanEnum, DynamicModel
 from .type import Type
-from .utils import CleanEnum, connected
+from .utils import authenticated, connected
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -39,7 +44,31 @@ class Status(CleanEnum):
     REJECTED = "rejected"
 
 
-class Part(ArbitraryModel):
+class Reference(DynamicModel):
+    """TODO."""
+
+    uuid: Annotated[str, AfterValidator(UUID)] | UUID4 | None = Field(
+        title="UUID",
+        description="The unique identifier for the part.",
+        default=None,
+    )
+
+    slug: str | None = Field(
+        title="Slug",
+        description="The URL-friendly identifier for the part.",
+        pattern=r"^bba-[a-z0-9]{1,10}$",
+        default=None,
+    )
+
+    @model_validator(mode="after")
+    def check_input_provided(self) -> Self:
+        """TODO."""
+        if not self.slug and not self.uuid:
+            raise ValueError
+        return self
+
+
+class Part(DynamicModel):
     """TODO."""
 
     client: Client = Field(
@@ -50,9 +79,10 @@ class Part(ArbitraryModel):
         repr=False,
     )
 
-    uuid: UUID4 = Field(
+    uuid: Annotated[str, AfterValidator(UUID)] | UUID4 | None = Field(
         title="UUID",
         description="The unique identifier for the part.",
+        default=None,
     )
     id: str | None = Field(
         title="ID",
@@ -61,53 +91,62 @@ class Part(ArbitraryModel):
         exclude=True,
         repr=False,
     )
-    name: str = Field(
+    name: str | None = Field(
         title="Name",
         description="The name of the part.",
         pattern=r"^BBa_[A-Z0-9]{1,10}$",
+        default=None,
         repr=False,
     )
-    slug: str = Field(
+    slug: str | None = Field(
         title="Slug",
         description="The URL-friendly identifier for the part.",
         pattern=r"^bba-[a-z0-9]{1,10}$",
+        default=None,
     )
-    status: Status = Field(
+    status: Status | None = Field(
         title="Status",
         description="The current status of the part.",
+        default=None,
     )
-    title: str = Field(
+    title: str | None = Field(
         title="Title",
         description="The title of the part.",
+        default=None,
     )
-    description: str = Field(
+    description: str | None = Field(
         title="Description",
         description="A brief description of the part.",
+        default=None,
     )
-    type: Type = Field(
+    type: Type | None = Field(
         title="Type",
         description="The type of the part.",
         alias="typeUUID",
+        default=None,
     )
-    categories: list[Category] = Field(
+    categories: Sequence[Category] | None = Field(
         title="Categories",
         description="The categories associated with the part.",
         default_factory=list,
         exclude=True,
         repr=False,
     )
-    license: License = Field(
+    license: License | None = Field(
         title="License",
         description="The license under which the part is released.",
         alias="licenseUUID",
+        default=None,
     )
-    source: str = Field(
+    source: str | None = Field(
         title="Source",
         description="The source of the part.",
+        default=None,
     )
-    sequence: Seq = Field(
+    sequence: Seq | None = Field(
         title="Sequence",
         description="The sequence of the part.",
+        default=None,
     )
     audit: AuditLog | None = Field(
         title="Audit",
@@ -116,6 +155,47 @@ class Part(ArbitraryModel):
         exclude=True,
         repr=False,
     )
+
+    composition: Sequence[Reference | Seq] | Seq | None = Field(
+        title="Composition",
+        description=(
+            "Composition of the part, which can be a list of references or a "
+            "raw sequence."
+        ),
+        default=None,
+    )
+    authors: Sequence[Author] | None = Field(
+        title="Authors",
+        description="The authors of the part.",
+        default_factory=list,
+    )
+
+    @authenticated
+    def get_authors(self) -> list[Author]:
+        """TODO."""
+        items, meta = call_paginated(
+            self.client,
+            requests.Request(
+                method="GET",
+                url=f"{self.client.base}/parts/{self.uuid}/authors",
+            ),
+            Author,
+            list[Organisation],
+        )
+
+        orgmap = {org.uuid: org for org in meta}
+
+        for item in items:
+            item.account.client = self.client
+            item.organisation = orgmap[item.organisation.uuid]
+            item.organisation.client = self.client
+
+        return items
+
+    @property
+    def is_composite(self) -> bool:
+        """Check if the part is composite."""
+        return isinstance(self.composition, Sequence)
 
     @model_validator(mode="before")
     @classmethod
@@ -166,6 +246,17 @@ class Part(ArbitraryModel):
             logger.error(msg)
             raise ValueError(msg)
         return self
+
+    @field_validator("categories", mode="after")
+    @classmethod
+    def is_category_unique(
+        cls,
+        value: Sequence[Category],
+    ) -> Sequence[Category]:
+        """TODO."""
+        if len(value) != len(set(value)):
+            raise ValueError
+        return value
 
     @field_serializer("sequence", mode="plain")
     def serialize_sequence(self, value: Seq) -> str:
@@ -219,7 +310,7 @@ class Part(ArbitraryModel):
 
     @classmethod
     @connected
-    def search(  # noqa: PLR0913
+    def search(
         cls,
         client: Client,
         search: str,
@@ -266,13 +357,25 @@ class Part(ArbitraryModel):
 
     @classmethod
     @connected
-    def get(cls, client: Client, uuid: UUID4 | str) -> Self:
+    def get(cls, client: Client, ref: Reference) -> Self:
         """TODO."""
-        return call(
-            client,
-            requests.Request(
-                method="GET",
-                url=f"{client.base}/parts/{uuid}",
-            ),
-            cls,
-        )
+        if ref.uuid:
+            item = call(
+                client,
+                requests.Request(
+                    method="GET",
+                    url=f"{client.base}/parts/{ref.uuid}",
+                ),
+                cls,
+            )
+        else:
+            item = call(
+                client,
+                requests.Request(
+                    method="GET",
+                    url=f"{client.base}/parts/slugs/{ref.slug}",
+                ),
+                cls,
+            )
+        item.client = client
+        return item

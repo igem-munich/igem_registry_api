@@ -8,6 +8,7 @@ dependencies = [
     "biopython>=1.85",
     "brotli>=1.1.0",
     "dotenv>=0.9.9",
+    "ipykernel>=6.30.1",
     "pydantic>=2.11.7",
     "pytest>=8.4.1",
     "requests>=2.32.4",
@@ -27,10 +28,13 @@ build-backend = "uv_build"
 module-root = "src"
 module-name = "igem_registry_api"
 
+[tool.ruff.lint]
+select = ["ALL"]
+fixable = ["ALL"]
+ignore = ["B009", "ANN401", "PLC0415"]
+
+[tool.ruff.lint.pylint]
+max-args = 8
+
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
-
-[tool.pylint.main]
-load-plugins = [
-  "pylint_pydantic",
-]
