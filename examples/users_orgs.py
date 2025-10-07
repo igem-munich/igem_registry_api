@@ -1,4 +1,4 @@
-"""TODO."""
+"""Fetch user and organization information from the iGEM Registry API."""
 
 import os
 

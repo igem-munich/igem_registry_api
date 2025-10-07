@@ -64,7 +64,7 @@ class Roles(CleanEnum):
 class Account(DynamicModel):
     """Registry account.
 
-    Represents a user account in the iGEM Registry. An `Account` stores basic
+    Represents a user account in the Registry. An `Account` stores basic
     profile information and, when paired with an authenticated `Client`, can
     retrieve affiliated organisations (`affiliations()`) and authored parts
     (`parts()`).

@@ -1,4 +1,4 @@
-"""TODO."""
+"""Fetch part metadata from the iGEM Registry."""
 
 from rich.console import Console
 from rich.pretty import pprint
@@ -7,7 +7,7 @@ from igem_registry_api import Category, Client, License, Type
 
 
 def main() -> None:
-    """TODO."""
+    """Fetch and display part metadata objects."""
     console = Console()
 
     # 1. Set up client

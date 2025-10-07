@@ -1,7 +1,7 @@
 """Author models and contribution roles.
 
-This submodule defines models related to authorship in the iGEM Registry.
-It provides the `Author` model, which combines `Account` and `Organisation`
+This submodule defines models related to authorship in the Registry. It
+provides the `Author` model, which combines `Account` and `Organisation`
 information with contribution roles defined by the `Contribution` enum.
 
 Exports:
@@ -35,9 +35,9 @@ __all__: list[str] = [
 class Contribution(CleanEnum):
     """Contribution roles of Registry authors.
 
-    Defines the contributor roles supported by the iGEM Registry, adapted
-    from the CRediT taxonomy. Multiple authors can share the same role,
-    and one author can hold several roles.
+    Defines the contributor roles supported by the Registry, adapted from the
+    CRediT taxonomy. Multiple authors can share the same role, and one author
+    can hold several roles.
 
     Attributes:
         CONCEPTUALISATION: Formulating research goals or overarching ideas.
@@ -66,9 +66,9 @@ class Contribution(CleanEnum):
 class Author(DynamicModel):
     """Registry author.
 
-    Represents an author entry in the iGEM Registry, combining the
-    underlying `Account`, associated `Organisation`, and the author's
-    specific `Contribution` roles.
+    Represents an author entry in the Registry, combining the underlying
+    `Account`, associated `Organisation`, and the author's specific
+    `Contribution` roles.
 
     Attributes:
         uuid (str | UUID4 | None): Unique author identifier (version-4 UUID).
