@@ -85,7 +85,7 @@ class Account(DynamicModel):
         Create an `Account` instance and fetch affiliated `Organisations` and
         authored `Parts`:
 
-        ```python
+        ```pythonuuid
         from igem_registry_api import Account, Client
 
         client = Client()

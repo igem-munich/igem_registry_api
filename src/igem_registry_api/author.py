@@ -168,6 +168,25 @@ class Author(DynamicModel):
             }
         return data
 
+    @model_validator(mode="before")
+    @classmethod
+    def extract_organisation(cls, data: dict) -> dict:
+        """Extract nested organisation data from raw API response.
+
+        Converts the `organisationUUID` field from the raw API response into
+        an embedded `Organisation` object structure.
+
+        Args:
+            data (dict): Raw data response from the API.
+
+        Returns:
+            out (dict): Normalized data with an `Organisation` sub-object.
+
+        """
+        if "organisationUUID" in data:
+            data["organisation"] = {"uuid": data.pop("organisationUUID")}
+        return data
+
     @field_validator("uuid", mode="after")
     @classmethod
     def ensure_uuid(cls, value: str | UUID4 | None) -> UUID4 | None:
