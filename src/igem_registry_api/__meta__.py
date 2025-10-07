@@ -1,4 +1,17 @@
-"""Metadata for the iGEM Registry API."""
+"""Metadata for the iGEM Registry API.
+
+This submodule defines and exposes package metadata such as the version,
+repository URL, and documentation URL. This information is extracted from the
+package's distribution metadata.
+
+Exports:
+    __documentation__: URL to the package documentation.
+    __issues__: URL to the package issue tracker.
+    __repository__: URL to the package repository.
+    __module__: Name of the package.
+    __package__: Name of the package.
+    __version__: Version of the package.
+"""
 
 from importlib.metadata import PackageMetadata, metadata, version
 
@@ -6,7 +19,6 @@ __all__: list[str] = [
     "__documentation__",
     "__issues__",
     "__module__",
-    "__name__",
     "__package__",
     "__repository__",
     "__version__",

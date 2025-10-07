@@ -128,9 +128,8 @@ class Form(CleanEnum):
 class Annotation(DynamicModel):
     """Sequence annotation.
 
-    Represents a sequence annotation of a part in the iGEM Registry. An
-    `Annotation` stores details about the feature type, location, and strand
-    orientation.
+    Represents a sequence annotation of a part in the Registry. An `Annotation`
+    stores details about the feature type, location, and strand orientation.
 
     Attributes:
         uuid (str | UUID4 | None): Unique author identifier (version-4 UUID).
@@ -161,11 +160,10 @@ class Annotation(DynamicModel):
         str | UUID4 | None,
         Field(
             title="UUID",
-            description="Unique identifier for the author.",
+            description="Unique identifier for the annotation.",
             frozen=True,
         ),
     ] = None
-
     form: Annotated[
         Form,
         Field(
@@ -175,17 +173,15 @@ class Annotation(DynamicModel):
             frozen=False,
         ),
     ]
-
     label: Annotated[
-        str | None,
+        str,
         Field(
             title="Label",
             description="Label of the annotation.",
             max_length=20,
             frozen=False,
         ),
-    ] = None
-
+    ]
     strand: Annotated[
         Strand,
         Field(
@@ -194,7 +190,6 @@ class Annotation(DynamicModel):
             frozen=False,
         ),
     ]
-
     start: Annotated[
         int,
         Field(
@@ -203,7 +198,6 @@ class Annotation(DynamicModel):
             frozen=False,
         ),
     ]
-
     end: Annotated[
         int,
         Field(
@@ -213,6 +207,27 @@ class Annotation(DynamicModel):
             frozen=False,
         ),
     ]
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_composite(cls, data: dict) -> dict:
+        """Extract annotation data from composite part input.
+
+        Pulls out relevant fields from a composite part representation and
+        maps them to the `Annotation` model fields.
+
+        Args:
+            data (dict): Raw data response from the API.
+
+        Returns:
+            out (dict): Extracted annotation data.
+
+        """
+        if "componentUUID" in data and "componentName" in data:
+            data["label"] = data.pop("componentName")
+            data["uuid"] = data.pop("componentUUID")
+            data["form"] = Form.OTHER_MISCELLANEOUS
+        return data
 
     @field_validator("uuid", mode="after")
     @classmethod
@@ -252,7 +267,7 @@ class Annotation(DynamicModel):
 
         """
         if self.start == self.end:
-            message = "Annotation start and end cannot be identical."
-            e = ValueError(message)
+            msg = "Annotation start and end cannot be identical."
+            e = ValueError(msg)
             raise InputValidationError(error=e) from e
         return self

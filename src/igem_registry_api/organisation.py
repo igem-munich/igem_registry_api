@@ -73,11 +73,11 @@ class Kind(CleanEnum):
 class Organisation(DynamicModel):
     """Registry organisation.
 
-    Represents an organisation in the iGEM Registry. An `Organisation` stores
-    basic information about the organisation, and when paired with an
-    authenticated `Client`, can retrieve member accounts (`members()`).
-    Organisations can also be retrieved with a connected `Client` in bulk via
-    `fetch()` or individually using their UUID via `get()` methods.
+    Represents an organisation in the Registry. An `Organisation` stores basic
+    information about the organisation, and when paired with an authenticated
+    `Client`, can retrieve member accounts (`members()`). Organisations can
+    also be retrieved with a connected `Client` in bulk via `fetch()` or
+    individually using their UUID via `get()` methods.
 
     Attributes:
         client (Client): Registry API client used to perform requests.
